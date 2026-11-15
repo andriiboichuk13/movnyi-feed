@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Мовний фід</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Мовний фід</h1>
+    <p class="sub">Українські альтернативи відео на YouTube</p>
+  </header>
+
+  <p class="notice" id="reloadNotice" hidden>Оновіть вкладку YouTube (F5), щоб розширення запрацювало на ній. Так буває після встановлення або оновлення розширення.</p>
+
+  <section class="block">
+    <label class="switch-row">
+      <span>
+        <span class="row-title">Показувати альтернативи</span>
+        <span class="row-hint">Панель поруч з відео, яке ви дивитеся</span>
+      </span>
+      <input type="checkbox" id="showPanel" role="switch">
+    </label>
+  </section>
+
+  <section class="block" id="kidsBlock">
+    <label class="switch-row">
+      <span>
+        <span class="row-title">Дитячий режим</span>
+        <span class="row-hint">Ховає російськомовні відео на головній, у рекомендаціях і пошуку. Відео, мову яких не вдалося визначити, лишаються.</span>
+      </span>
+      <input type="checkbox" id="kidsMode" role="switch">
+    </label>
+
+    <div id="pinGate" class="pin-gate" hidden>
+      <label for="pinGateInput" class="row-hint">Введіть PIN, щоб вимкнути дитячий режим</label>
+      <div class="inline">
+        <input id="pinGateInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+        <button id="pinGateBtn" class="btn">Вимкнути</button>
+      </div>
+      <p id="pinGateError" class="error" hidden>Неправильний PIN</p>
+    </div>
+
+    <div id="kidsDetails" hidden>
+      <p class="stat"><strong id="hiddenToday">0</strong> приховано сьогодні, <strong id="hiddenWeek">0</strong> за 7 днів</p>
+
+      <label class="switch-row small">
+        <span class="row-hint">Надсилати денну кількість прихованих відео, без назв і посилань. Допомагає нам рахувати користь.</span>
+        <input type="checkbox" id="shareKidsStats" role="switch">
+      </label>
+
+      <div class="pin-area">
+        <button id="pinSetOpen" class="link">Встановити PIN</button>
+        <button id="pinRemoveOpen" class="link" hidden>Прибрати PIN</button>
+        <div id="pinForm" hidden>
+          <label for="pinInput" class="row-hint" id="pinFormLabel">Новий PIN, 4–8 цифр</label>
+          <div class="inline">
+            <input id="pinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+            <button id="pinSave" class="btn">Зберегти</button>
+          </div>
+          <p id="pinError" class="error" hidden></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Мовний баланс за 7 днів</h2>
+    <div class="bar" id="balanceBar" aria-hidden="true"></div>
+    <ul class="legend" id="balanceLegend"></ul>
+    <p class="row-hint" id="balanceEmpty">Ще немає переглядів. Відкрийте будь-яке відео на YouTube.</p>
+  </section>
+
+  <footer class="foot">
+    <span id="mockNote" hidden>Демо-дані: бекенд не підключено</span>
+    <a id="privacyLink" href="#" target="_blank" rel="noopener">Конфіденційність</a>
+  </footer>
+
+  <script src="../config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
