@@ -114,14 +114,12 @@
     const shown = await MF_Panel.mount({ videoId, videoTitle, data, settings });
     if (shown && token === navToken) {
       MF.send("event", { eventType: "panel_shown", level: data.level });
-      const suggested = (data.items || []).slice(0, MF_CONFIG.MAX_ALTERNATIVES);
-      for (const item of suggested) {
-        if (item && item.videoId) {
-          MF.send("videoAction", {
-            action: "suggested",
-            videoUrl: `https://www.youtube.com/watch?v=${encodeURIComponent(item.videoId)}`,
-          });
-        }
+      const suggested = (data.items || [])
+        .slice(0, MF_CONFIG.MAX_ALTERNATIVES)
+        .filter((item) => item && item.videoId)
+        .map((item) => ({ action: "suggested", videoId: item.videoId }));
+      if (suggested.length > 0) {
+        MF.send("videoActions", { items: suggested });
       }
     }
   }

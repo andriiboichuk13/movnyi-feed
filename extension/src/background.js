@@ -159,21 +159,28 @@ async function handleEvent({ eventType, level }) {
   return { ok: true };
 }
 
-// Дія з відео для таблиці video_actions: POST /actions { user, action, videoUrl, timestamp }
-async function handleVideoAction({ action, videoUrl, videoId }) {
-  if (action !== "suggested" && action !== "hid") {
-    throw new Error(`Unsupported action: ${action}`);
+// Дії з відео для таблиці video_actions: POST /actions { installId, items: [{ action, videoId }] }
+async function handleVideoActions({ items }) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error("items must be a non-empty array");
   }
-  const url = videoUrl || (videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : null);
-  if (!url) return { ok: false, error: "missing videoUrl" };
+  const normalized = items.map((it) => {
+    if (!it || (it.action !== "suggested" && it.action !== "hid") || !it.videoId) {
+      throw new Error(`Invalid action item: ${JSON.stringify(it)}`);
+    }
+    return { action: it.action, videoId: String(it.videoId) };
+  });
 
   const body = {
-    user: await getInstallId(),
-    action,
-    videoUrl: url,
-    timestamp: new Date().toISOString(),
+    installId: await getInstallId(),
+    items: normalized,
   };
-  return apiFetch("/actions", { method: "POST", body: JSON.stringify(body) });
+  if (!MF_CONFIG.USE_MOCK) {
+    await apiFetch("/actions", { method: "POST", body: JSON.stringify(body) });
+  } else {
+    console.log("[Мовний фід] mock /actions", body);
+  }
+  return { ok: true };
 }
 
 // Лічильник прихованих карток у дитячому режимі (локально, по днях).
@@ -210,7 +217,7 @@ const HANDLERS = {
   classify: handleClassify,
   wish: handleWish,
   event: handleEvent,
-  videoAction: handleVideoAction,
+  videoActions: handleVideoActions,
   kidsHidden: handleKidsHidden,
   watched: handleWatched,
 };

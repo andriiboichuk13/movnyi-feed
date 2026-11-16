@@ -25,6 +25,7 @@ const MF_Filter = (() => {
   const pending = new Map(); // videoId → Set<card>
   const counted = new Set(); // videoId, які вже пораховані як приховані
   let hiddenToReport = 0;
+  let hiddenIds = [];
   let reportTimer = null;
 
   function cardSelector() {
@@ -85,21 +86,25 @@ const MF_Filter = (() => {
     card.dataset.mfLang = result.lang;
     if (hide && !counted.has(videoId)) {
       counted.add(videoId);
-      reportHidden();
-      MF.send("videoAction", {
-        action: "hid",
-        videoUrl: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
-      });
+      reportHidden(videoId);
     }
   }
 
-  function reportHidden() {
+  function reportHidden(videoId) {
     hiddenToReport += 1;
+    hiddenIds.push(videoId);
     clearTimeout(reportTimer);
     reportTimer = setTimeout(() => {
       const count = hiddenToReport;
+      const batch = hiddenIds;
       hiddenToReport = 0;
+      hiddenIds = [];
       if (count > 0) MF.send("kidsHidden", { count });
+      if (batch.length > 0) {
+        MF.send("videoActions", {
+          items: batch.map((id) => ({ action: "hid", videoId: id })),
+        });
+      }
     }, 2000);
   }
 
