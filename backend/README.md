@@ -4,7 +4,7 @@
 
 | Файл | Що робить |
 |---|---|
-| `server.py` | Сервер для розширення і сайту: `/alternatives`, `/classify`, `/wish`, `/events` |
+| `server.py` | Сервер для розширення і сайту: `/alternatives`, `/classify`, `/wish`, `/events`, `/actions` |
 | `ingest.py` | Наповнює базу: таблиця каналів → YouTube API → вектори → Supabase |
 | `search.py` | Перевірка: шукає в базі українські відео, найближчі до будь-якого тексту |
 | `lang.py` | Визначення мови відео (та сама логіка, що в розширенні, плюс `defaultAudioLanguage`) |
@@ -32,6 +32,14 @@ YOUTUBE_API_KEY=...
 DATABASE_URL=...
 CHANNELS_SHEET=посилання на Google-таблицю
 ```
+
+Для локальної бази даних замість Supabase можна підняти PostgreSQL у Docker з кореня репозиторію:
+
+```bash
+docker compose up -d
+```
+
+Тоді у `.env` використовуйте `DATABASE_URL=postgresql://movnyi:movnyi_local_pass@localhost:5433/movnyi_feed` (уже вказано в `.env.example`).
 
 Наповнення бази:
 
