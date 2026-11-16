@@ -8,6 +8,7 @@
   POST /classify   {videoIds: [...]}
   POST /wish       {installId, videoId, videoTitle, level, userText}
   POST /events     {installId, type, level, ts}
+  POST /actions    {user, action, videoUrl, timestamp?}
 """
 
 import csv
@@ -89,6 +90,15 @@ SCHEMA = [
         day date,
         ts timestamptz not null default now()
     )""",
+    """create table if not exists video_actions (
+        action_id bigserial primary key,
+        "timestamp" timestamptz not null default now(),
+        "user" text not null,
+        action text not null check (action in ('suggested', 'hid')),
+        video_url text not null
+    )""",
+    'create index if not exists video_actions_user_idx on video_actions ("user", "timestamp" desc)',
+    'create index if not exists video_actions_action_idx on video_actions (action, "timestamp" desc)',
 ]
 
 state = {}
@@ -116,8 +126,15 @@ async def lifespan(app: FastAPI):
         configure=register_vector,
         open=True,
     )
-    state["yt"] = YouTube(C.env("YOUTUBE_API_KEY"))
-    state["model"] = C.load_model()
+    yt_key = (os.getenv("YOUTUBE_API_KEY") or "").strip()
+    state["yt"] = YouTube(yt_key) if yt_key else None
+    if not state["yt"]:
+        print("Увага: YOUTUBE_API_KEY не задано — /alternatives і /classify працюватимуть лише з кешу або повернуть 503.")
+    try:
+        state["model"] = C.load_model() if yt_key else None
+    except Exception as e:
+        print(f"Увага: не вдалося завантажити модель ({e}) — векторний пошук вимкнено.")
+        state["model"] = None
     state["uk_dubs"] = load_uk_dubs()
     print("Сервер готовий: http://localhost:8000/docs")
     yield
@@ -185,6 +202,8 @@ def get_sources(video_ids):
         missing = [v for v in video_ids if v not in result]
         if not missing:
             return result
+        if not state["yt"]:
+            raise HTTPException(503, "YOUTUBE_API_KEY не налаштовано")
 
         items = []
         for i in range(0, len(missing), 50):
@@ -375,11 +394,14 @@ def log_answer(video_id, mode, src, response, best_score):
 @app.get("/health")
 def health():
     with db() as conn:
-        videos = conn.execute("select count(*) from videos").fetchone()[0]
-        channels = conn.execute("select count(*) from channels").fetchone()[0]
+        has_videos = conn.execute("select to_regclass('public.videos') is not null").fetchone()[0]
+        has_channels = conn.execute("select to_regclass('public.channels') is not null").fetchone()[0]
+        videos = conn.execute("select count(*) from videos").fetchone()[0] if has_videos else 0
+        channels = conn.execute("select count(*) from channels").fetchone()[0] if has_channels else 0
+        actions_count = conn.execute("select count(*) from video_actions").fetchone()[0]
         searches = conn.execute("select coalesce(max(calls), 0) from search_budget where day = current_date").fetchone()[0]
-    return {"ok": True, "videos": videos, "channels": channels, "searchesToday": searches,
-            "searchDailyLimit": C.SEARCH_DAILY_LIMIT}
+    return {"ok": True, "videos": videos, "channels": channels, "videoActions": actions_count,
+            "searchesToday": searches, "searchDailyLimit": C.SEARCH_DAILY_LIMIT}
 
 
 @app.get("/alternatives")
@@ -414,6 +436,8 @@ def alternatives(videoId: str = Query(...), mode: str = Query("default", pattern
         # Відео вже українське: альтернативи не потрібні.
         response = {"source": source, "level": 0, "items": []}
     else:
+        if not state["model"]:
+            raise HTTPException(503, "Модель ембедінгів не завантажено")
         query_text = C.embedding_text(src["title"], src["tags"], src["description"])
         qvec = embed_one(query_text)
         qwords = keywords(src["title"] + " " + " ".join(src["tags"]))
@@ -529,3 +553,27 @@ def events(body: EventBody):
             (body.installId, body.type, body.level, body.count, body.date),
         )
     return {"ok": True}
+
+
+ACTION_TYPES = {"suggested", "hid"}
+
+
+class ActionBody(BaseModel):
+    user: str = Field(..., min_length=1, max_length=128)
+    action: str
+    videoUrl: str = Field(..., min_length=1, max_length=500)
+    timestamp: Optional[dt.datetime] = None
+
+
+@app.post("/actions")
+def actions(body: ActionBody):
+    if body.action not in ACTION_TYPES:
+        raise HTTPException(400, "Невідома дія (очікується 'suggested' або 'hid')")
+    with db() as conn:
+        row = conn.execute(
+            """insert into video_actions ("timestamp", "user", action, video_url)
+               values (coalesce(%s, now()), %s, %s, %s)
+               returning action_id, "timestamp" """,
+            (body.timestamp, body.user, body.action, body.videoUrl),
+        ).fetchone()
+    return {"ok": True, "actionId": row[0], "timestamp": row[1].isoformat()}

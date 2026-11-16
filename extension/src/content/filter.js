@@ -86,6 +86,10 @@ const MF_Filter = (() => {
     if (hide && !counted.has(videoId)) {
       counted.add(videoId);
       reportHidden();
+      MF.send("videoAction", {
+        action: "hid",
+        videoUrl: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+      });
     }
   }
 

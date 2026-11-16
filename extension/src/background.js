@@ -159,6 +159,23 @@ async function handleEvent({ eventType, level }) {
   return { ok: true };
 }
 
+// Дія з відео для таблиці video_actions: POST /actions { user, action, videoUrl, timestamp }
+async function handleVideoAction({ action, videoUrl, videoId }) {
+  if (action !== "suggested" && action !== "hid") {
+    throw new Error(`Unsupported action: ${action}`);
+  }
+  const url = videoUrl || (videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : null);
+  if (!url) return { ok: false, error: "missing videoUrl" };
+
+  const body = {
+    user: await getInstallId(),
+    action,
+    videoUrl: url,
+    timestamp: new Date().toISOString(),
+  };
+  return apiFetch("/actions", { method: "POST", body: JSON.stringify(body) });
+}
+
 // Лічильник прихованих карток у дитячому режимі (локально, по днях).
 async function handleKidsHidden({ count }) {
   const { kidsHidden = {} } = await chrome.storage.local.get("kidsHidden");
@@ -193,6 +210,7 @@ const HANDLERS = {
   classify: handleClassify,
   wish: handleWish,
   event: handleEvent,
+  videoAction: handleVideoAction,
   kidsHidden: handleKidsHidden,
   watched: handleWatched,
 };
