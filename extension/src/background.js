@@ -159,6 +159,30 @@ async function handleEvent({ eventType, level }) {
   return { ok: true };
 }
 
+// Дії з відео для таблиці video_actions: POST /actions { installId, items: [{ action, videoId }] }
+async function handleVideoActions({ items }) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error("items must be a non-empty array");
+  }
+  const normalized = items.map((it) => {
+    if (!it || (it.action !== "suggested" && it.action !== "hid") || !it.videoId) {
+      throw new Error(`Invalid action item: ${JSON.stringify(it)}`);
+    }
+    return { action: it.action, videoId: String(it.videoId) };
+  });
+
+  const installId = await getInstallId();
+  for (let i = 0; i < normalized.length; i += 100) {
+    const body = { installId, items: normalized.slice(i, i + 100) };
+    if (!MF_CONFIG.USE_MOCK) {
+      await apiFetch("/actions", { method: "POST", body: JSON.stringify(body) });
+    } else {
+      console.log("[Мовний фід] mock /actions", body);
+    }
+  }
+  return { ok: true };
+}
+
 // Лічильник прихованих карток у дитячому режимі (локально, по днях).
 async function handleKidsHidden({ count }) {
   const { kidsHidden = {} } = await chrome.storage.local.get("kidsHidden");
@@ -193,6 +217,7 @@ const HANDLERS = {
   classify: handleClassify,
   wish: handleWish,
   event: handleEvent,
+  videoActions: handleVideoActions,
   kidsHidden: handleKidsHidden,
   watched: handleWatched,
 };

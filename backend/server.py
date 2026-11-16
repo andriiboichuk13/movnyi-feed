@@ -8,15 +8,17 @@
   POST /classify   {videoIds: [...]}
   POST /wish       {installId, videoId, videoTitle, level, userText}
   POST /events     {installId, type, level, ts}
+  POST /actions    {installId, items: [{action, videoId}]}
 """
 
 import csv
 import datetime as dt
+import logging
 import os
 import re
 import threading
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
@@ -25,7 +27,7 @@ from fastapi.responses import JSONResponse
 from pgvector.psycopg import register_vector
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 import config as C
 from lang import source_language
@@ -89,6 +91,15 @@ SCHEMA = [
         day date,
         ts timestamptz not null default now()
     )""",
+    """create table if not exists video_actions (
+        action_id bigserial primary key,
+        created_at timestamptz not null default now(),
+        install_id text not null,
+        action text not null check (action in ('suggested', 'hid')),
+        video_id text not null
+    )""",
+    "create index if not exists video_actions_install_idx on video_actions (install_id, created_at desc)",
+    "create index if not exists video_actions_action_idx on video_actions (action, created_at desc)",
 ]
 
 state = {}
@@ -116,8 +127,15 @@ async def lifespan(app: FastAPI):
         configure=register_vector,
         open=True,
     )
-    state["yt"] = YouTube(C.env("YOUTUBE_API_KEY"))
-    state["model"] = C.load_model()
+    yt_key = (os.getenv("YOUTUBE_API_KEY") or "").strip()
+    state["yt"] = YouTube(yt_key) if yt_key else None
+    if not state["yt"]:
+        logging.warning("YOUTUBE_API_KEY не задано — /alternatives і /classify працюватимуть лише з кешу або повернуть 503.")
+    try:
+        state["model"] = C.load_model()
+    except Exception:
+        logging.exception("Не вдалося завантажити модель ембедінгів — векторний пошук вимкнено.")
+        state["model"] = None
     state["uk_dubs"] = load_uk_dubs()
     print("Сервер готовий: http://localhost:8000/docs")
     yield
@@ -185,6 +203,8 @@ def get_sources(video_ids):
         missing = [v for v in video_ids if v not in result]
         if not missing:
             return result
+        if not state["yt"]:
+            raise YouTubeError("YOUTUBE_API_KEY не налаштовано")
 
         items = []
         for i in range(0, len(missing), 50):
@@ -375,11 +395,14 @@ def log_answer(video_id, mode, src, response, best_score):
 @app.get("/health")
 def health():
     with db() as conn:
-        videos = conn.execute("select count(*) from videos").fetchone()[0]
-        channels = conn.execute("select count(*) from channels").fetchone()[0]
+        has_videos = conn.execute("select to_regclass('public.videos') is not null").fetchone()[0]
+        has_channels = conn.execute("select to_regclass('public.channels') is not null").fetchone()[0]
+        videos = conn.execute("select count(*) from videos").fetchone()[0] if has_videos else 0
+        channels = conn.execute("select count(*) from channels").fetchone()[0] if has_channels else 0
+        has_actions = conn.execute("select exists (select 1 from video_actions)").fetchone()[0]
         searches = conn.execute("select coalesce(max(calls), 0) from search_budget where day = current_date").fetchone()[0]
-    return {"ok": True, "videos": videos, "channels": channels, "searchesToday": searches,
-            "searchDailyLimit": C.SEARCH_DAILY_LIMIT}
+    return {"ok": True, "videos": videos, "channels": channels, "hasVideoActions": has_actions,
+            "searchesToday": searches, "searchDailyLimit": C.SEARCH_DAILY_LIMIT}
 
 
 @app.get("/alternatives")
@@ -414,6 +437,8 @@ def alternatives(videoId: str = Query(...), mode: str = Query("default", pattern
         # Відео вже українське: альтернативи не потрібні.
         response = {"source": source, "level": 0, "items": []}
     else:
+        if not state["model"]:
+            raise HTTPException(503, "Модель ембедінгів не завантажено")
         query_text = C.embedding_text(src["title"], src["tags"], src["description"])
         qvec = embed_one(query_text)
         qwords = keywords(src["title"] + " " + " ".join(src["tags"]))
@@ -529,3 +554,34 @@ def events(body: EventBody):
             (body.installId, body.type, body.level, body.count, body.date),
         )
     return {"ok": True}
+
+
+class ActionItem(BaseModel):
+    action: Literal["suggested", "hid"]
+    videoId: str
+
+    @field_validator("videoId")
+    @classmethod
+    def check_video_id(cls, v: str) -> str:
+        if not VIDEO_ID.match(v):
+            raise ValueError("Некоректний videoId")
+        return v
+
+
+class ActionsBody(BaseModel):
+    installId: str = Field(..., min_length=8, max_length=64)
+    items: List[ActionItem] = Field(..., min_length=1, max_length=100)
+
+
+@app.post("/actions")
+def actions(body: ActionsBody):
+    rows = [(body.installId, item.action, item.videoId) for item in body.items]
+    with db() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """insert into video_actions (install_id, action, video_id)
+                       values (%s, %s, %s)""",
+                    rows,
+                )
+    return {"ok": True, "inserted": len(rows)}

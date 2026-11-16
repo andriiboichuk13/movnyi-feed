@@ -4,7 +4,7 @@
 
 | Файл | Що робить |
 |---|---|
-| `server.py` | Сервер для розширення і сайту: `/alternatives`, `/classify`, `/wish`, `/events` |
+| `server.py` | Сервер для розширення і сайту: `/alternatives`, `/classify`, `/wish`, `/events`, `/actions` |
 | `ingest.py` | Наповнює базу: таблиця каналів → YouTube API → вектори → Supabase |
 | `search.py` | Перевірка: шукає в базі українські відео, найближчі до будь-якого тексту |
 | `lang.py` | Визначення мови відео (та сама логіка, що в розширенні, плюс `defaultAudioLanguage`) |
