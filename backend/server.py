@@ -13,6 +13,7 @@
 
 import csv
 import datetime as dt
+import logging
 import os
 import re
 import threading
@@ -129,11 +130,11 @@ async def lifespan(app: FastAPI):
     yt_key = (os.getenv("YOUTUBE_API_KEY") or "").strip()
     state["yt"] = YouTube(yt_key) if yt_key else None
     if not state["yt"]:
-        print("Увага: YOUTUBE_API_KEY не задано — /alternatives і /classify працюватимуть лише з кешу або повернуть 503.")
+        logging.warning("YOUTUBE_API_KEY не задано — /alternatives і /classify працюватимуть лише з кешу або повернуть 503.")
     try:
-        state["model"] = C.load_model() if yt_key else None
-    except Exception as e:
-        print(f"Увага: не вдалося завантажити модель ({e}) — векторний пошук вимкнено.")
+        state["model"] = C.load_model()
+    except Exception:
+        logging.exception("Не вдалося завантажити модель ембедінгів — векторний пошук вимкнено.")
         state["model"] = None
     state["uk_dubs"] = load_uk_dubs()
     print("Сервер готовий: http://localhost:8000/docs")
@@ -203,7 +204,7 @@ def get_sources(video_ids):
         if not missing:
             return result
         if not state["yt"]:
-            raise HTTPException(503, "YOUTUBE_API_KEY не налаштовано")
+            raise YouTubeError("YOUTUBE_API_KEY не налаштовано")
 
         items = []
         for i in range(0, len(missing), 50):
