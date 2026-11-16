@@ -90,6 +90,27 @@ const MF_Panel = (() => {
     }
   `;
 
+  // YouTube слухає клавіші на всій сторінці (пробіл = пауза, k, f, j, l, цифри…).
+  // Панель у Shadow DOM, тому YouTube не бачить, що людина пише в нашому полі,
+  // і забирає натискання собі. Зупиняємо такі події ще на рівні window, у фазі
+  // захоплення, до будь-яких обробників YouTube. Сам символ при цьому друкується,
+  // бо ми не викликаємо preventDefault.
+  function isOurTextField(e) {
+    const host = document.getElementById(HOST_ID);
+    if (!host || !host.shadowRoot) return false;
+    const target = e.composedPath()[0];
+    return !!target && host.shadowRoot.contains(target) && (target.tagName === "TEXTAREA" || target.tagName === "INPUT");
+  }
+  for (const type of ["keydown", "keypress", "keyup"]) {
+    window.addEventListener(
+      type,
+      (e) => {
+        if (isOurTextField(e)) e.stopImmediatePropagation();
+      },
+      true
+    );
+  }
+
   function remove() {
     const host = document.getElementById(HOST_ID);
     if (host) host.remove();
@@ -240,11 +261,15 @@ const MF_Panel = (() => {
       const counter = MF.el("div", { class: "counter", text: `0 / ${MF_CONFIG.WISH_TEXT_MAX}` });
       const ta = MF.el("textarea", {
         maxlength: String(MF_CONFIG.WISH_TEXT_MAX),
-        placeholder: "Що саме хочете подивитися українською? Можна не заповнювати.",
+        placeholder: "Наприклад: огляд бюджетних ноутбуків для навчання",
         "aria-label": "Що саме хочете подивитися українською",
         oninput: (e) => (counter.textContent = `${e.target.value.length} / ${MF_CONFIG.WISH_TEXT_MAX}`),
       });
       wrap.append(
+        MF.el("p", {
+          class: "hint",
+          text: "Яке відео ви хотіли б подивитися українською? Ми збираємо такі запити, щоб показати українським авторам, яких відео бракує. Поле можна не заповнювати.",
+        }),
         ta,
         counter,
         MF.el("div", { class: "row" }, [
@@ -276,7 +301,7 @@ const MF_Panel = (() => {
         MF.el("button", { class: "btn", text: "Хочу українське", onclick: open })
       );
     } else {
-      wrap.append(MF.el("button", { class: "link", text: "Це не те, хочу українське", onclick: open }));
+      wrap.append(MF.el("button", { class: "link", text: "Не те, що шукали? Розкажіть нам", onclick: open }));
     }
     return wrap;
   }
