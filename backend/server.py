@@ -8,7 +8,7 @@
   POST /classify   {videoIds: [...]}
   POST /wish       {installId, videoId, videoTitle, level, userText}
   POST /events     {installId, type, level, ts}
-  POST /actions    {user, action, videoUrl, timestamp?}
+  POST /actions    {installId, items: [{action, videoId}]}
 """
 
 import csv
@@ -18,7 +18,7 @@ import os
 import re
 import threading
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse
 from pgvector.psycopg import register_vector
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 import config as C
 from lang import source_language
@@ -93,13 +93,13 @@ SCHEMA = [
     )""",
     """create table if not exists video_actions (
         action_id bigserial primary key,
-        "timestamp" timestamptz not null default now(),
-        "user" text not null,
+        created_at timestamptz not null default now(),
+        install_id text not null,
         action text not null check (action in ('suggested', 'hid')),
-        video_url text not null
+        video_id text not null
     )""",
-    'create index if not exists video_actions_user_idx on video_actions ("user", "timestamp" desc)',
-    'create index if not exists video_actions_action_idx on video_actions (action, "timestamp" desc)',
+    "create index if not exists video_actions_install_idx on video_actions (install_id, created_at desc)",
+    "create index if not exists video_actions_action_idx on video_actions (action, created_at desc)",
 ]
 
 state = {}
@@ -399,9 +399,9 @@ def health():
         has_channels = conn.execute("select to_regclass('public.channels') is not null").fetchone()[0]
         videos = conn.execute("select count(*) from videos").fetchone()[0] if has_videos else 0
         channels = conn.execute("select count(*) from channels").fetchone()[0] if has_channels else 0
-        actions_count = conn.execute("select count(*) from video_actions").fetchone()[0]
+        has_actions = conn.execute("select exists (select 1 from video_actions)").fetchone()[0]
         searches = conn.execute("select coalesce(max(calls), 0) from search_budget where day = current_date").fetchone()[0]
-    return {"ok": True, "videos": videos, "channels": channels, "videoActions": actions_count,
+    return {"ok": True, "videos": videos, "channels": channels, "hasVideoActions": has_actions,
             "searchesToday": searches, "searchDailyLimit": C.SEARCH_DAILY_LIMIT}
 
 
@@ -556,25 +556,32 @@ def events(body: EventBody):
     return {"ok": True}
 
 
-ACTION_TYPES = {"suggested", "hid"}
+class ActionItem(BaseModel):
+    action: Literal["suggested", "hid"]
+    videoId: str
+
+    @field_validator("videoId")
+    @classmethod
+    def check_video_id(cls, v: str) -> str:
+        if not VIDEO_ID.match(v):
+            raise ValueError("Некоректний videoId")
+        return v
 
 
-class ActionBody(BaseModel):
-    user: str = Field(..., min_length=1, max_length=128)
-    action: str
-    videoUrl: str = Field(..., min_length=1, max_length=500)
-    timestamp: Optional[dt.datetime] = None
+class ActionsBody(BaseModel):
+    installId: str = Field(..., min_length=8, max_length=64)
+    items: List[ActionItem] = Field(..., min_length=1, max_length=100)
 
 
 @app.post("/actions")
-def actions(body: ActionBody):
-    if body.action not in ACTION_TYPES:
-        raise HTTPException(400, "Невідома дія (очікується 'suggested' або 'hid')")
+def actions(body: ActionsBody):
+    rows = [(body.installId, item.action, item.videoId) for item in body.items]
     with db() as conn:
-        row = conn.execute(
-            """insert into video_actions ("timestamp", "user", action, video_url)
-               values (coalesce(%s, now()), %s, %s, %s)
-               returning action_id, "timestamp" """,
-            (body.timestamp, body.user, body.action, body.videoUrl),
-        ).fetchone()
-    return {"ok": True, "actionId": row[0], "timestamp": row[1].isoformat()}
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """insert into video_actions (install_id, action, video_id)
+                       values (%s, %s, %s)""",
+                    rows,
+                )
+    return {"ok": True, "inserted": len(rows)}
