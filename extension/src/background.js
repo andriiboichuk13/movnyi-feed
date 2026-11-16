@@ -171,14 +171,14 @@ async function handleVideoActions({ items }) {
     return { action: it.action, videoId: String(it.videoId) };
   });
 
-  const body = {
-    installId: await getInstallId(),
-    items: normalized,
-  };
-  if (!MF_CONFIG.USE_MOCK) {
-    await apiFetch("/actions", { method: "POST", body: JSON.stringify(body) });
-  } else {
-    console.log("[Мовний фід] mock /actions", body);
+  const installId = await getInstallId();
+  for (let i = 0; i < normalized.length; i += 100) {
+    const body = { installId, items: normalized.slice(i, i + 100) };
+    if (!MF_CONFIG.USE_MOCK) {
+      await apiFetch("/actions", { method: "POST", body: JSON.stringify(body) });
+    } else {
+      console.log("[Мовний фід] mock /actions", body);
+    }
   }
   return { ok: true };
 }
