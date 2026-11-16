@@ -33,14 +33,6 @@ DATABASE_URL=...
 CHANNELS_SHEET=посилання на Google-таблицю
 ```
 
-Для локальної бази даних замість Supabase можна підняти PostgreSQL у Docker з кореня репозиторію:
-
-```bash
-docker compose up -d
-```
-
-Тоді у `.env` використовуйте `DATABASE_URL=postgresql://movnyi:movnyi_local_pass@localhost:5433/movnyi_feed` (уже вказано в `.env.example`).
-
 Наповнення бази:
 
 ```powershell
