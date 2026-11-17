@@ -42,7 +42,7 @@ const MF_CONFIG = {
   WISH_TEXT_MAX: 280,
 
   // Таймаут запиту до бекенду.
-  FETCH_TIMEOUT_MS: 8000,
+  FETCH_TIMEOUT_MS: 20000,
 
   // Скільки днів показувати в «мовному балансі».
   BALANCE_DAYS: 7,

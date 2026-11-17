@@ -84,6 +84,14 @@ const MF_Panel = (() => {
     .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     .done { color: var(--muted); font-size: 13px; margin: 0; }
     .mock { margin-top: 10px; color: var(--muted); font-size: 12px; }
+    .sk { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: start; }
+    .sk-thumb { width: 120px; aspect-ratio: 16 / 9; border-radius: 8px; background: var(--line); }
+    .sk-line { height: 12px; border-radius: 6px; background: var(--line); margin: 4px 0 10px; }
+    .sk-line.short { width: 55%; height: 10px; }
+    @media (prefers-reduced-motion: no-preference) {
+      .sk-thumb, .sk-line { animation: mf-pulse 1.2s ease-in-out infinite; }
+      @keyframes mf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    }
     @media (prefers-reduced-motion: no-preference) {
       .mf { animation: mf-in 160ms ease-out; }
       @keyframes mf-in { from { opacity: 0; } to { opacity: 1; } }
@@ -128,9 +136,27 @@ const MF_Panel = (() => {
   }
 
   // Показати панель. data = відповідь GET /alternatives.
-  async function mount({ videoId, videoTitle, data, settings }) {
-    state = { videoId, videoTitle, data, settings, dismissed: false, wishState: "idle" };
+  // data = null → панель у стані «завантаження» із заготовками на місці відео.
+  // hint = мова за оцінкою розширення, щоб одразу написати «Це відео російською».
+  async function mount({ videoId, videoTitle, data, settings, hint = null }) {
+    state = { videoId, videoTitle, data, settings, hint, error: null, dismissed: false, wishState: "idle" };
     return ensureMounted();
+  }
+
+  // Прийшла відповідь сервера: замінюємо заготовки справжніми альтернативами.
+  async function update(videoId, data) {
+    if (!state || state.videoId !== videoId) return false;
+    state.data = data;
+    state.error = null;
+    rerender();
+    return ensureMounted();
+  }
+
+  // Сервер так і не відповів: показуємо повідомлення з кнопкою повтору.
+  function showError(videoId, onRetry) {
+    if (!state || state.videoId !== videoId) return;
+    state.error = onRetry;
+    rerender();
   }
 
   // Вставити панель, якщо її немає (YouTube іноді перемальовує сайдбар).
@@ -170,8 +196,8 @@ const MF_Panel = (() => {
 
   function build() {
     const { data, settings } = state;
-    const level = data.level || 5;
-    const items = (data.items || [])
+    const level = (data && data.level) || 5;
+    const items = ((data && data.items) || [])
       .slice()
       .sort((a, b) => (b.hasUkDub ? 1 : 0) - (a.hasUkDub ? 1 : 0)) // з дубляжем першим
       .slice(0, MF_CONFIG.MAX_ALTERNATIVES);
@@ -182,7 +208,7 @@ const MF_Panel = (() => {
       MF.el("header", {}, [
         MF.el("div", {}, [
           MF.el("div", { class: "brand", text: "Мовний фід" }),
-          MF.el("p", { class: "source", text: sourceText(data.source) }),
+          MF.el("p", { class: "source", text: sourceText(data ? data.source : state.hint) }),
         ]),
         MF.el("button", {
           class: "close",
@@ -196,6 +222,29 @@ const MF_Panel = (() => {
         }),
       ])
     );
+
+    if (!data && state.error) {
+      box.append(
+        MF.el("p", { class: "level", text: "Не вдалося завантажити альтернативи" }),
+        MF.el("p", { class: "hint", text: "Сервер зараз не відповідає. Спробуйте ще раз за хвилину." }),
+        MF.el("button", { class: "btn", text: "Спробувати ще раз", onclick: () => state.error() })
+      );
+      return box;
+    }
+    if (!data) {
+      box.append(MF.el("p", { class: "level", text: "Шукаємо українські альтернативи…" }));
+      const list = MF.el("ul", { "aria-busy": "true" });
+      for (let i = 0; i < MF_CONFIG.MAX_ALTERNATIVES; i++) {
+        list.append(
+          MF.el("li", { class: "sk" }, [
+            MF.el("div", { class: "sk-thumb" }),
+            MF.el("div", {}, [MF.el("div", { class: "sk-line" }), MF.el("div", { class: "sk-line short" })]),
+          ])
+        );
+      }
+      box.append(list);
+      return box;
+    }
 
     if (items.length > 0) {
       box.append(MF.el("p", { class: "level", text: LEVEL_TEXT[level] || LEVEL_TEXT[1] }));
@@ -329,5 +378,5 @@ const MF_Panel = (() => {
     remove();
   }
 
-  return { mount, ensureMounted, remove, reset, isMounted };
+  return { mount, update, showError, ensureMounted, remove, reset, isMounted };
 })();

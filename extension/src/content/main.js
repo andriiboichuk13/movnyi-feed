@@ -65,6 +65,24 @@
     return MF_LANG.isConfident(both, MF_CONFIG.LANG_THRESHOLD) ? { ...both, source: both.source + "+description" } : byTitle;
   }
 
+  // Перший запит про нове відео сервер може обробляти довго (YouTube API, вектори, пошук).
+  // Якщо відповідь не прийшла, пробуємо ще раз через кілька секунд: на сервері до того часу
+  // відповідь зазвичай уже лежить у кеші.
+  const RETRY_DELAYS_MS = [3000, 8000];
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function requestAlternatives(videoId, hint, token) {
+    for (let attempt = 0; ; attempt++) {
+      const res = await MF.send("alternatives", { videoId, hint });
+      if (token !== navToken) return null;
+      if (res.ok && res.data) return res.data;
+      console.warn("[Мовний фід] alternatives:", res.error);
+      if (attempt >= RETRY_DELAYS_MS.length) return null;
+      await sleep(RETRY_DELAYS_MS[attempt]);
+      if (token !== navToken) return null;
+    }
+  }
+
   async function onNavigate() {
     lastHref = location.href;
     await refreshSettings();
@@ -90,14 +108,24 @@
     const hint = await detectWatchLang(videoTitle);
     if (token !== navToken) return;
 
-    const res = await MF.send("alternatives", { videoId, hint });
+    // Розширення вже впевнене, що відео не українське → показуємо панель одразу,
+    // із заготовками на місці відео, і паралельно чекаємо відповідь сервера.
+    const early = settings.showPanel && MF_LANG.isConfident(hint, MF_CONFIG.LANG_THRESHOLD) && hint.lang !== "uk";
+    if (early) MF_Panel.mount({ videoId, videoTitle, data: null, settings, hint });
+
+    const data = await requestAlternatives(videoId, hint, token);
     if (token !== navToken) return;
-    if (!res.ok || !res.data) {
-      console.warn("[Мовний фід] alternatives:", res.error);
-      return; // бекенд недоступний → мовчки нічого не показуємо
+    if (!data) {
+      // Сервер так і не відповів. Якщо заготовки вже на екрані, показуємо кнопку повтору.
+      if (early) {
+        MF_Panel.showError(videoId, () => {
+          currentVideoId = null;
+          onNavigate();
+        });
+      }
+      return;
     }
 
-    const data = res.data;
     const lang = data.source && data.source.lang;
     console.log("[Мовний фід] відео", videoId, "| назва:", videoTitle, "| клієнт:", hint, "| бекенд:", data.source, "| рівень:", data.level);
 
@@ -107,11 +135,16 @@
       MF.send("watched", { lang });
     }
 
-    // Українське відео: альтернативи не потрібні.
-    if (lang === "uk") return;
+    // Українське відео: альтернативи не потрібні (і прибираємо заготовки, якщо вони були).
+    if (lang === "uk") {
+      MF_Panel.reset();
+      return;
+    }
     if (!settings.showPanel) return;
 
-    const shown = await MF_Panel.mount({ videoId, videoTitle, data, settings });
+    const shown = early
+      ? await MF_Panel.update(videoId, data)
+      : await MF_Panel.mount({ videoId, videoTitle, data, settings });
     if (shown && token === navToken) {
       MF.send("event", { eventType: "panel_shown", level: data.level });
       const suggested = (data.items || [])
