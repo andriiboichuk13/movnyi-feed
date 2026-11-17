@@ -24,13 +24,15 @@ from typing import List, Literal, Optional
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pgvector.psycopg import register_vector
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel, Field, field_validator
 
 import config as C
+import wishes_pipeline
 from lang import source_language
 from youtube import YouTube, YouTubeError, available_in_ukraine, is_short, parse_duration
 
@@ -176,6 +178,7 @@ async def lifespan(app: FastAPI):
         logging.warning("YOUTUBE_API_KEY не задано — /alternatives і /classify працюватимуть лише з кешу або повернуть 503.")
     try:
         state["model"] = C.load_model()
+        wishes_pipeline.set_embed_model(state["model"])
     except Exception:
         logging.exception("Не вдалося завантажити модель ембедінгів — векторний пошук вимкнено.")
         state["model"] = None
@@ -727,3 +730,48 @@ def actions(body: ActionsBody):
                     rows,
                 )
     return {"ok": True, "inserted": len(rows)}
+
+
+CREATORS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "creators")
+if os.path.isdir(CREATORS_DIR):
+    app.mount("/creators/assets", StaticFiles(directory=CREATORS_DIR), name="creators-assets")
+
+
+@app.get("/creators", include_in_schema=False)
+def creators_dashboard():
+    index_path = os.path.join(CREATORS_DIR, "index.html")
+    if not os.path.isfile(index_path):
+        raise HTTPException(404, "Веб-інтерфейс для авторів не знайдено")
+    return FileResponse(index_path)
+
+
+@app.get("/api/creators/overview")
+def creators_overview(
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    topic_id: Optional[int] = Query(None, ge=1),
+    level: Optional[int] = Query(None, ge=0, le=3),
+    q: Optional[str] = Query(None, max_length=120),
+):
+    """Агрегована аналітика побажань із таблиці `wishes` для українських авторів."""
+    with db() as conn:
+        return wishes_pipeline.build_creators_analytics(
+            conn,
+            days=days,
+            topic_id=topic_id,
+            level=level,
+            query=q,
+        )
+
+
+class ProcessWishesBody(BaseModel):
+    force: bool = False
+
+
+@app.post("/api/creators/process")
+def creators_process(body: Optional[ProcessWishesBody] = None):
+    """Запускає класифікацію тем та оновлення метаданих для записів у `wishes`."""
+    force = bool(body.force) if body else False
+    with db() as conn:
+        updated = wishes_pipeline.process_unprocessed_wishes(conn, force=force)
+        overview = wishes_pipeline.build_creators_analytics(conn)
+    return {"ok": True, "processed": updated, "overview": overview}
