@@ -562,7 +562,10 @@ def alternatives(
             usable = [] if weak else cands
 
             level, items = 5, []
-            same = pick(usable, C.SAME_TOPIC_THRESHOLD)
+            median = stats.get("median", 0.0)
+            same = pick([c for c in usable
+                         if c["score"] >= C.SAME_TOPIC_STRONG or c["score"] - median >= C.SAME_TOPIC_MIN_MARGIN],
+                        C.SAME_TOPIC_THRESHOLD)
             if same:  # 1. українське на ту саму тему з нашої бази
                 # Решту місць у панелі заповнюємо відео «близької теми», щоб не показувати одне-єдине.
                 level, items = 1, [item(c) for c in pick(usable, C.CLOSE_TOPIC_THRESHOLD)]
@@ -596,7 +599,9 @@ def alternatives(
             "sourceTitle": src["title"],
             "langSource": src.get("lang_source"),
             "queryText": C.embedding_text(src["title"], src["tags"], src["description"]),
-            "thresholds": {"same": C.SAME_TOPIC_THRESHOLD, "close": C.CLOSE_TOPIC_THRESHOLD,
+            "thresholds": {"same": C.SAME_TOPIC_THRESHOLD, "sameMinMargin": C.SAME_TOPIC_MIN_MARGIN,
+                           "sameStrong": C.SAME_TOPIC_STRONG,
+                           "close": C.CLOSE_TOPIC_THRESHOLD,
                            "minMargin": C.MIN_MARGIN, "titleWeight": C.TITLE_WEIGHT},
             "stats": {k: r3(v) for k, v in stats.items()},
             "top": [

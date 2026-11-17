@@ -360,17 +360,69 @@ def cleanup(conn, active_channel_ids: list, had_errors: bool):
 # ---------------------------------------------------------------- Головне
 
 
+BATCH_CHANNELS = 20  # записувати в базу кожні стільки каналів
+SKIP_FRESH_HOURS = 20  # канали, оновлені за останні стільки годин, пропускаємо (якщо не --all)
+
+
 def main():
+    """Запуск:  python ingest.py        — оновити канали, які не оновлювались останні 20 годин
+                python ingest.py --all  — оновити всі канали
+
+    Результат записується в базу кожні 20 каналів. Якщо запуск обірвався (вимкнулось світло,
+    закінчилась квота), повторний запуск пропустить уже оброблені канали й не витрачатиме
+    на них квоту YouTube."""
+    force = "--all" in sys.argv
     yt = YouTube(env("YOUTUBE_API_KEY"))
     env("DATABASE_URL")
     rows = load_sheet(env("CHANNELS_SHEET"))
     approved = [r for r in rows if r.get("status", "").lower() == "approved"]
-    print(f"Каналів у таблиці: {len(rows)}, зі статусом approved: {len(approved)}.\n")
+    print(f"Каналів у таблиці: {len(rows)}, зі статусом approved: {len(approved)}.")
     if not approved:
         sys.exit("Немає жодного каналу зі status = approved. Нічого робити.")
 
-    channels, videos, errors = [], [], 0
-    for row in approved:
+    conn = connect_db()
+    for stmt in SCHEMA:
+        conn.execute(stmt)
+
+    fresh_rows = [] if force else conn.execute(
+        f"select url, channel_id from channels where updated_at > now() - interval '{SKIP_FRESH_HOURS} hours'"
+    ).fetchall()
+    fresh_urls = {r[0] for r in fresh_rows}
+    todo = [r for r in approved if r["channel_url"] not in fresh_urls]
+    active_ids = [r[1] for r in fresh_rows if r[0] in {a["channel_url"] for a in approved}]
+    if len(todo) < len(approved):
+        print(f"Пропускаю {len(approved) - len(todo)} каналів, оновлених за останні {SKIP_FRESH_HOURS} год "
+              f"(щоб оновити всі, запустіть з --all).")
+    print(f"До обробки: {len(todo)} каналів.\n")
+
+    state = {"model": None, "fresh": 0, "same": 0, "stale": 0}
+    batch_channels, batch_videos = [], []
+
+    def flush():
+        """Записати накопичену порцію каналів у базу."""
+        if not batch_channels:
+            return
+        for v in batch_videos:
+            v["text_hash"] = text_hash(v)
+        fresh, same = split_by_hash(conn, batch_videos)
+        touch(conn, batch_channels, same)
+        if fresh:
+            if state["model"] is None:
+                state["model"] = load_model()
+            embeddings = embed(state["model"], [embedding_text(v["title"], v["tags"], v["description"]) for v in fresh])
+            title_embeddings = embed(state["model"], [title_text(v["title"]) for v in fresh])
+            for i in range(0, len(fresh), 500):
+                save(conn, [], fresh[i : i + 500], embeddings[i : i + 500], title_embeddings[i : i + 500])
+        state["stale"] += drop_stale(conn, batch_channels, batch_videos)
+        state["fresh"] += len(fresh)
+        state["same"] += len(same)
+        active_ids.extend(c["id"] for c in batch_channels)
+        print(f"  → записано в базу: {len(batch_channels)} каналів, нових відео {len(fresh)}, без змін {len(same)}\n")
+        batch_channels.clear()
+        batch_videos.clear()
+
+    errors, stop = 0, False
+    for row in todo:
         label = row.get("name") or row["channel_url"]
         ref = parse_channel_ref(row["channel_url"])
         if not ref:
@@ -389,6 +441,7 @@ def main():
             errors += 1
             if "quotaExceeded" in str(e) or "keyInvalid" in str(e) or "API_KEY" in str(e):
                 print("  Далі немає сенсу продовжувати. Перевірте ключ або квоту.")
+                stop = True
                 break
             continue
 
@@ -398,8 +451,8 @@ def main():
             kids=is_yes(row.get("kids")),
             uk_since=parse_date(row.get("uk_since")),
         )
-        channels.append(ch)
-        videos.extend(kept)
+        batch_channels.append(ch)
+        batch_videos.extend(kept)
         dropped = ", ".join(
             f"{name} {s[key]}"
             for key, name in [("shorts", "Shorts"), ("live", "трансляції"), ("blocked", "недоступні в UA"),
@@ -407,43 +460,28 @@ def main():
             if s[key]
         )
         print(f"✓ {ch['title']}: {len(kept)} з {s['total']} відео" + (f" (відсіяно: {dropped})" if dropped else ""))
+        if len(batch_channels) >= BATCH_CHANNELS:
+            flush()
 
-    print(f"\nВитрачено квоти YouTube API: {yt.units} з 10 000 одиниць на день.")
-    if not videos:
-        sys.exit("Жодного відео не відібрано, базу не змінюю.")
+    flush()  # залишок, зокрема якщо зупинились через квоту
 
-    for v in videos:
-        v["text_hash"] = text_hash(v)
-
-    conn = connect_db()
-    for stmt in SCHEMA:
-        conn.execute(stmt)
-    fresh, same = split_by_hash(conn, videos)
-    print(f"Нових або змінених відео: {len(fresh)}, без змін: {len(same)}.")
-
-    touch(conn, channels, same)
-    if fresh:
-        model = load_model()
-        print(f"Рахую вектори для {len(fresh)} відео…")
-        embeddings = embed(model, [embedding_text(v["title"], v["tags"], v["description"]) for v in fresh])
-        title_embeddings = embed(model, [title_text(v["title"]) for v in fresh])
-        print("Записую в базу…")
-        for i in range(0, len(fresh), 500):  # частинами, щоб не тримати одну величезну транзакцію
-            save(conn, channels if i == 0 else [], fresh[i : i + 500],
-                 embeddings[i : i + 500], title_embeddings[i : i + 500])
-    stale = drop_stale(conn, channels, videos)
-    old, removed = cleanup(conn, [c["id"] for c in channels], errors > 0)
+    print(f"Витрачено квоти YouTube API: {yt.units} з 10 000 одиниць на день.")
+    # Прибирати канали, яких немає серед approved, лише якщо пройшли все без помилок.
+    old, removed = cleanup(conn, active_ids, errors > 0 or stop)
 
     total = conn.execute("select count(*) from videos").fetchone()[0]
-    print(f"\nГотово. Оброблено каналів: {len(channels)}. Усього відео в базі: {total}.")
-    if stale:
-        print(f"Прибрано {stale} відео, які більше не проходять відбір (Shorts тощо).")
+    print(f"\nГотово. Нових відео: {state['fresh']}, без змін: {state['same']}. Усього відео в базі: {total}.")
+    if state["stale"]:
+        print(f"Прибрано {state['stale']} відео, які більше не проходять відбір (Shorts, ліміт відео з каналу тощо).")
     if old:
         print(f"Видалено {old} відео, старших за {RETENTION_DAYS} днів.")
     if removed:
         print(f"Прибрано {removed} каналів, яких більше немає серед approved.")
     if errors:
         print(f"Каналів з помилками: {errors}. Подивіться повідомлення з ✗ вище.")
+    if stop:
+        print("Запуск зупинено через квоту або ключ. Наступного дня запустіть скрипт ще раз: "
+              "уже оброблені канали він пропустить.")
 
 
 if __name__ == "__main__":
