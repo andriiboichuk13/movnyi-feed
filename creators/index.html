@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Мовний фід · Аналітика запитів для авторів</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/creators/assets/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-glow"></div>
+
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">
+        <div class="brand-badge">UA</div>
+        <div>
+          <h1>Мовний фід <span class="accent">Для авторів</span></h1>
+          <p class="subtitle">Агрегована аналітика побажань глядачів із Supabase · токен-класифікація та семантичне групування</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <span id="status-pill" class="status-pill">Підключення…</span>
+        <button id="btn-process" class="btn btn-primary" type="button">
+          <span class="btn-spinner" aria-hidden="true"></span>
+          <span class="btn-label">Оновити AI-аналіз</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-content">
+    <!-- Фільтри -->
+    <section class="filters-bar card" aria-label="Фільтри">
+      <div class="filter-group">
+        <label for="filter-days">Період</label>
+        <select id="filter-days">
+          <option value="">Весь час</option>
+          <option value="7">Останні 7 днів</option>
+          <option value="30">Останні 30 днів</option>
+          <option value="90">Останні 90 днів</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-topic">Тема</label>
+        <select id="filter-topic">
+          <option value="">Усі теми</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-level">Рівень альтернативи</label>
+        <select id="filter-level">
+          <option value="">Усі рівні</option>
+          <option value="1">Рівень 1 · Та сама тема</option>
+          <option value="2">Рівень 2 · Пошук за ключовими словами</option>
+          <option value="3">Рівень 3 · Близька тема</option>
+          <option value="0">Не знайдено / не вказано</option>
+        </select>
+      </div>
+
+      <div class="filter-group filter-search">
+        <label for="filter-query">Пошук за назвою або коментарем</label>
+        <input id="filter-query" type="search" placeholder="Наприклад: PlayStation, пельмені, огляд…" />
+      </div>
+
+      <button id="btn-reset" class="btn btn-ghost" type="button">Скинути</button>
+    </section>
+
+    <!-- KPI картки -->
+    <section class="kpi-grid" aria-label="Ключові показники">
+      <article class="kpi-card card">
+        <span class="kpi-label">Усього побажань</span>
+        <strong id="kpi-total" class="kpi-value">—</strong>
+        <span id="kpi-processed" class="kpi-meta">Оброблено моделлю: —</span>
+      </article>
+
+      <article class="kpi-card card">
+        <span class="kpi-label">Унікальних глядачів</span>
+        <strong id="kpi-installs" class="kpi-value">—</strong>
+        <span id="kpi-with-text" class="kpi-meta">Із текстовим коментарем: —</span>
+      </article>
+
+      <article class="kpi-card card">
+        <span class="kpi-label">Незакритий попит</span>
+        <strong id="kpi-unmet" class="kpi-value accent-warn">—</strong>
+        <span class="kpi-meta">Не було точного збігу (рівень ≠ 1)</span>
+      </article>
+
+      <article class="kpi-card card">
+        <span class="kpi-label">Найгарячіша тема</span>
+        <strong id="kpi-top-topic" class="kpi-value kpi-topic">—</strong>
+        <span id="kpi-confidence" class="kpi-meta">Середня впевненість: —</span>
+      </article>
+    </section>
+
+    <!-- Графіки -->
+    <section class="charts-grid">
+      <article class="card chart-card chart-wide">
+        <div class="card-header">
+          <div>
+            <h2>Попит за темами</h2>
+            <p class="card-sub">Розподіл побажань глядачів за категоріями контенту</p>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-topics"></canvas>
+        </div>
+      </article>
+
+      <article class="card chart-card">
+        <div class="card-header">
+          <div>
+            <h2>Динаміка запитів</h2>
+            <p class="card-sub">Кількість побажань у часі</p>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-timeline"></canvas>
+        </div>
+      </article>
+
+      <article class="card chart-card">
+        <div class="card-header">
+          <div>
+            <h2>Тональність та намір</h2>
+            <p class="card-sub">Класифікація `user_text` моделлю</p>
+          </div>
+        </div>
+        <div class="chart-wrap chart-wrap-sm">
+          <canvas id="chart-sentiment"></canvas>
+        </div>
+      </article>
+
+      <article class="card chart-card">
+        <div class="card-header">
+          <div>
+            <h2>Покриття альтернативами</h2>
+            <p class="card-sub">На якому рівні зупинився пошук</p>
+          </div>
+        </div>
+        <div class="chart-wrap chart-wrap-sm">
+          <canvas id="chart-levels"></canvas>
+        </div>
+      </article>
+    </section>
+
+    <!-- Семантичні кластери + Токен-класифікація -->
+    <section class="insights-grid">
+      <article class="card">
+        <div class="card-header">
+          <div>
+            <h2>Семантичні групи (ідеї для відео)</h2>
+            <p class="card-sub">Схожі запити, згруповані через `multilingual-e5-small` + Agglomerative Clustering</p>
+          </div>
+          <span id="clusters-count" class="badge">0 груп</span>
+        </div>
+        <div id="clusters-list" class="clusters-list"></div>
+      </article>
+
+      <article class="card">
+        <div class="card-header">
+          <div>
+            <h2>Токен-класифікація (NER і сутності)</h2>
+            <p class="card-sub">Виділені сутності з назв відео та побажань. Натисніть токен для фільтрації.</p>
+          </div>
+          <div class="legend-pills">
+            <span class="tok-badge tok-PER">PER</span>
+            <span class="tok-badge tok-ORG">ORG</span>
+            <span class="tok-badge tok-MISC">MISC</span>
+            <span class="tok-badge tok-TECH">TECH</span>
+            <span class="tok-badge tok-LOC">LOC</span>
+            <span class="tok-badge tok-KEY">KEY</span>
+          </div>
+        </div>
+        <div id="tokens-cloud" class="tokens-cloud"></div>
+      </article>
+    </section>
+
+    <!-- Таблиця побажань -->
+    <section class="card table-section">
+      <div class="card-header">
+        <div>
+          <h2>Деталізація запитів (`wishes`)</h2>
+          <p class="card-sub">Усі побажання з визначеною темою, впевненістю та витягнутими токенами</p>
+        </div>
+        <span id="wishes-count" class="badge">0 записів</span>
+      </div>
+
+      <div class="table-scroll">
+        <table class="wishes-table">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Відео-джерело</th>
+              <th>Коментар глядача</th>
+              <th>Тема / Підтема</th>
+              <th>Витягнуті токени</th>
+              <th>Тональність</th>
+              <th>Рівень</th>
+            </tr>
+          </thead>
+          <tbody id="wishes-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="/creators/assets/app.js"></script>
+</body>
+</html>
