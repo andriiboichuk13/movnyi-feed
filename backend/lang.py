@@ -120,6 +120,10 @@ def source_language(snippet: dict, in_catalog: bool = False):
             return ("uk", 0.85, "catalog") if in_catalog else ("unknown", 0.5, "conflict")
         return "ru", 0.95, "defaultAudioLanguage"
     if audio.startswith("en"):
+        # Багато україномовних авторів не міняють мову звуку з англійської за замовчуванням.
+        # Український текст важить більше: помилкове «uk» лише сховає панель.
+        if t_lang == "uk" and t_conf >= 0.85:
+            return "uk", 0.9 if in_catalog else 0.85, "text-over-audio"
         if strong_text:
             return "unknown", 0.5, "conflict"
         return "en", 0.9, "defaultAudioLanguage"

@@ -3,12 +3,12 @@
 Запуск:  .venv\\Scripts\\python search.py "НОУТБУК ПО ЦЕНЕ АВТО"
 
 Можна писати російською: багатомовна модель має знайти українські відео на ту саму тему.
-Це та сама логіка, на якій працюватиме GET /alternatives.
+Рахує схожість так само, як сервер: окремо назва з назвою і назва+опис з назвою+описом.
 """
 
 import sys
 
-from config import connect_db, embed, load_model
+import config as C
 
 
 def main():
@@ -16,27 +16,30 @@ def main():
     if not query:
         sys.exit('Напишіть текст для пошуку, наприклад: python search.py "як вибрати ноутбук"')
 
-    conn = connect_db()
+    conn = C.connect_db()
     total = conn.execute("select count(*) from videos").fetchone()[0]
     if not total:
         sys.exit("База порожня. Спершу запустіть ingest.py.")
 
-    model = load_model()
-    vector = embed(model, [query])[0]
+    model = C.load_model()
+    qvec, tvec = C.embed(model, [C.embedding_text(query, [], ""), C.title_text(query)])
+    w = C.TITLE_WEIGHT
 
     rows = conn.execute(
-        """select v.video_id, v.title, c.title, 1 - (v.embedding <=> %s) as score
-           from videos v join channels c using (channel_id)
-           order by v.embedding <=> %s
-           limit 5""",
-        (vector, vector),
+        f"""select v.video_id, v.title, c.title,
+                   1 - (coalesce(v.title_embedding, v.embedding) <=> %(t)s) as title_sim,
+                   1 - (v.embedding <=> %(q)s) as full_sim
+            from videos v join channels c using (channel_id)
+            order by ({w} * (coalesce(v.title_embedding, v.embedding) <=> %(t)s) + {1 - w} * (v.embedding <=> %(q)s))
+            limit 5""",
+        dict(t=tvec, q=qvec),
     ).fetchall()
 
     print(f"\nЗапит: {query}\nУ базі {total} відео. Найближчі:\n")
-    for video_id, title, channel, score in rows:
-        print(f"{score:.3f}  {title}")
+    for video_id, title, channel, title_sim, full_sim in rows:
+        score = w * title_sim + (1 - w) * full_sim
+        print(f"{score:.3f}  (назва {title_sim:.3f}, з описом {full_sim:.3f})  {title}")
         print(f"       {channel} · https://www.youtube.com/watch?v={video_id}\n")
-    print("Чим ближче схожість до 1, тим ближча тема. Поріг для «тієї самої теми» підберемо на тестових запитах.")
 
 
 if __name__ == "__main__":

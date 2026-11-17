@@ -26,11 +26,23 @@ EMBED_DIM = 384
 EMBED_PREFIX = "query: "
 
 # ---------------------------------------------------------------- Каталог
-MAX_VIDEOS_PER_CHANNEL = 50  # скільки останніх відео брати з кожного каналу
+MAX_VIDEOS_PER_CHANNEL = 200  # скільки останніх відео брати з кожного каналу
 SHORTS_MAX_SECONDS = 180  # усе, що не довше 3 хвилин, вважаємо Shorts
+# Дитячі пісні й мультики часто тривають 2–3 хвилини, тож для каналів з kids = yes
+# Shorts вважаємо лише відео до хвилини.
+KIDS_SHORTS_MAX_SECONDS = 60
+DESCRIPTION_STORE_CHARS = 500  # скільки опису зберігати в базі (місце в Supabase обмежене)
 RETENTION_DAYS = 30  # правила YouTube API: оновлювати або видаляти дані щонайменше раз на 30 днів
 
 # ---------------------------------------------------------------- Рекомендації
+# Версія алгоритму. Коли змінюємо, як рахується схожість, збільшуємо число:
+# сервер при старті сам очистить старі кеші відповідей і мов.
+ALGO_VERSION = 2
+
+# Схожість = TITLE_WEIGHT × схожість назв + решта × схожість назви з описом.
+# Назва найкраще описує тему; опис додає контекст, але часто засмічений.
+TITLE_WEIGHT = 0.5
+
 # Пороги схожості (косинусна, модель e5-small). Стартові значення з перших тестів:
 # коли відповідь у базі є, найкращий результат 0.865–0.875; коли немає, 0.825–0.84.
 SAME_TOPIC_THRESHOLD = 0.86  # рівень 1: та сама тема
@@ -38,6 +50,9 @@ CLOSE_TOPIC_THRESHOLD = 0.84  # рівень 3: близька тема
 MAX_ITEMS = 3  # скільки альтернатив віддавати
 MAX_PER_CHANNEL = 2  # не більше стількох відео з одного каналу
 KEYWORD_BONUS_CAP = 0.03  # максимальний бонус за збіг чисел і назв моделей
+# Наскільки найкраще відео має виділятися над «фоном» (медіаною 60 кандидатів).
+# 0 = перевірку вимкнено. Підбираємо за /alternatives?debug=true.
+MIN_MARGIN = 0.0
 
 LANG_THRESHOLD = 0.8  # нижче цієї впевненості мова = unknown (як у розширенні)
 CACHE_HOURS = 24  # скільки тримати готову відповідь /alternatives
@@ -85,15 +100,68 @@ def normalize_caps(text: str) -> str:
     return _CAPS_WORD.sub(lambda m: m.group(0).lower() if m.group(0).isupper() else m.group(0), text or "")
 
 
+# Рядки опису, які описують не тему відео, а рекламу, соцмережі й прохання підписатися.
+_PROMO = re.compile(
+    r"промокод|promo|знижк|скидк|купон|coupon|спонсор|sponsor|реклам|партнер|affiliate|"
+    r"підпис|подпис|subscribe|telegram|телеграм|instagram|інстаграм|инстаграм|tiktok|тікток|тикток|"
+    r"patreon|патреон|донат|donat|monobank|монобанк|discord|діскорд|дискорд|facebook|twitter|"
+    r"лайк|like|колокольчик|дзвіночок|мерч|merch|доставк",
+    re.IGNORECASE,
+)
+_URL = re.compile(r"https?://|www\.|t\.me/|@\w{3,}")
+# Таймкоди глав: «00:00 Страх неопределенности», «1:02:03 - Висновки».
+_CHAPTER = re.compile(r"^\(?\d{1,2}:\d{2}(?::\d{2})?\)?\s*[-–—:|]?\s*(.+)$")
+_LETTER = re.compile(r"[^\W\d_]")
+
+
+def clean_description(description: str, limit: int = 400) -> str:
+    """Лише змістовна частина опису: без посилань, реклами й соцмереж.
+
+    Назви глав (рядки з таймкодами) зберігаємо: вони найкраще описують тему.
+    """
+    kept = []
+    for line in (description or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        chapter = _CHAPTER.match(line)
+        if chapter:
+            kept.append(chapter.group(1))
+            continue
+        if _URL.search(line) or _PROMO.search(line):
+            continue
+        if len(_LETTER.findall(line)) < 3:  # рядки з самих емодзі чи символів
+            continue
+        kept.append(line.replace("#", " "))
+    return "\n".join(kept)[:limit]
+
+
 def embedding_text(title: str, tags, description: str) -> str:
-    return "\n".join([title or "", " ".join((tags or [])[:15]), (description or "")[:500]])
+    tags = [t for t in (tags or []) if t][:10]
+    return "\n".join(part for part in [title or "", " ".join(tags), clean_description(description)] if part)
+
+
+def title_text(title: str) -> str:
+    return title or ""
+
+
+# Скільки потоків процесора дати PyTorch. У контейнері (Railway) PyTorch бачить усі ядра
+# фізичного сервера і запускає десятки потоків на кілька реально доступних ядер, через що
+# обчислення сповільнюються в рази. Тому кількість потоків обмежуємо явно.
+TORCH_THREADS = int(os.getenv("TORCH_THREADS", "2"))
 
 
 def load_model():
+    import torch
     from sentence_transformers import SentenceTransformer
 
-    print(f"Завантажую модель {MODEL_NAME}…")
-    return SentenceTransformer(MODEL_NAME)
+    torch.set_num_threads(TORCH_THREADS)
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        pass  # уже налаштовано раніше
+    print(f"Завантажую модель {MODEL_NAME} (потоків: {TORCH_THREADS})…")
+    return SentenceTransformer(MODEL_NAME, device="cpu")
 
 
 def embed(model, texts):

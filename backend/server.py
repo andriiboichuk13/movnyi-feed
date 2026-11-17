@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import threading
+import time
 from contextlib import asynccontextmanager
 from typing import List, Literal, Optional
 
@@ -33,7 +34,7 @@ import config as C
 from lang import source_language
 from youtube import YouTube, YouTubeError, available_in_ukraine, is_short, parse_duration
 
-LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "alternatives.csv")
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "alternatives_v2.csv")
 UK_DUBS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uk_dubs.txt")
 
 SCHEMA = [
@@ -57,6 +58,8 @@ SCHEMA = [
         created_at timestamptz not null default now(),
         primary key (video_id, mode)
     )""",
+    # Службові значення, наприклад версія алгоритму, з якою зібрано кеш.
+    "create table if not exists meta (key text primary key, value text)",
     """create table if not exists search_budget (
         day date primary key,
         calls integer not null default 0
@@ -106,6 +109,25 @@ state = {}
 model_lock = threading.Lock()
 
 
+class Timer:
+    """Скільки мілісекунд зайняв кожен етап відповіді. Пишеться в лог сервера."""
+
+    def __init__(self):
+        self.start = self.last = time.perf_counter()
+        self.parts = {}
+
+    def mark(self, name):
+        now = time.perf_counter()
+        self.parts[name] = self.parts.get(name, 0) + round((now - self.last) * 1000)
+        self.last = now
+
+    def total(self):
+        return round((time.perf_counter() - self.start) * 1000)
+
+    def line(self):
+        return f"total={self.total()}ms " + " ".join(f"{k}={v}ms" for k, v in self.parts.items())
+
+
 # ---------------------------------------------------------------- Запуск
 
 
@@ -114,6 +136,17 @@ async def lifespan(app: FastAPI):
     first = C.connect_db()  # створює розширення vector, якщо його ще немає
     for stmt in SCHEMA:
         first.execute(stmt)
+    first.execute(f"alter table if exists videos add column if not exists title_embedding vector({C.EMBED_DIM})")
+    # Змінився алгоритм → старі готові відповіді й визначені мови більше не годяться.
+    row = first.execute("select value from meta where key = 'algo_version'").fetchone()
+    if not row or row[0] != str(C.ALGO_VERSION):
+        first.execute("truncate alternatives_cache, source_videos")
+        first.execute(
+            """insert into meta (key, value) values ('algo_version', %s)
+               on conflict (key) do update set value = excluded.value""",
+            (str(C.ALGO_VERSION),),
+        )
+        print(f"Версія алгоритму {C.ALGO_VERSION}: кеш відповідей і мов очищено.")
     # Дані з YouTube API не тримаємо довше 30 днів.
     first.execute(f"delete from source_videos where fetched_at < now() - interval '{C.RETENTION_DAYS} days'")
     first.execute(f"delete from alternatives_cache where created_at < now() - interval '{C.RETENTION_DAYS} days'")
@@ -121,7 +154,7 @@ async def lifespan(app: FastAPI):
 
     state["pool"] = ConnectionPool(
         C.env("DATABASE_URL"),
-        min_size=1,
+        min_size=2,  # тримаємо з'єднання з базою відкритими, щоб не витрачати час на нові
         max_size=5,
         kwargs={"autocommit": True},
         configure=register_vector,
@@ -210,11 +243,19 @@ def get_sources(video_ids):
         for i in range(0, len(missing), 50):
             items += state["yt"].videos(missing[i : i + 50])
         in_catalog = catalog_channels(conn, {it["snippet"].get("channelId") for it in items})
+        # Відео, яке вже є в нашій базі українських відео, точно українське.
+        catalog_videos = {
+            r[0] for r in conn.execute(
+                "select video_id from videos where video_id = any(%s)", ([it["id"] for it in items],)
+            ).fetchall()
+        }
 
         to_save = []
         for it in items:
             sn = it["snippet"]
             lang, conf, src = source_language(sn, sn.get("channelId") in in_catalog)
+            if it["id"] in catalog_videos:
+                lang, conf, src = "uk", 0.95, "catalog-video"
             info = dict(
                 video_id=it["id"], channel_id=sn.get("channelId"), title=sn.get("title", ""),
                 description=(sn.get("description") or "")[:2000], tags=sn.get("tags") or [],
@@ -273,18 +314,37 @@ def keyword_bonus(query_words, title: str, tags) -> float:
     return min(C.KEYWORD_BONUS_CAP, bonus)
 
 
-def index_candidates(conn, vector, exclude_id: str, kids: bool, limit: int = 60):
-    # «+ 0» у сортуванні вимикає приблизний індекс: на кількох тисячах відео точний перебір
-    # швидкий і не губить кандидатів після фільтра дитячого режиму.
-    return conn.execute(
-        f"""select v.video_id, v.title, v.tags, c.title, v.channel_id, 1 - (v.embedding <=> %s) as score
+def combined(title_sim: float, full_sim: float) -> float:
+    return C.TITLE_WEIGHT * title_sim + (1 - C.TITLE_WEIGHT) * full_sim
+
+
+def index_candidates(conn, qvec, tvec, exclude_id: str, exclude_channel, kids: bool, limit: int = 60):
+    """Кандидати з бази. Схожість рахуємо двічі: назва з назвою і назва+опис з назвою+описом.
+
+    Відео з того самого каналу, що й вихідне, не пропонуємо: їх і так видно в рекомендаціях YouTube.
+    «+ 0» у сортуванні вимикає приблизний індекс: на кількох тисячах відео точний перебір
+    швидкий і не губить кандидатів після фільтра дитячого режиму.
+    """
+    w = C.TITLE_WEIGHT
+    rows = conn.execute(
+        f"""select v.video_id, v.title, v.tags, c.title, v.channel_id,
+                   1 - (coalesce(v.title_embedding, v.embedding) <=> %(t)s) as title_sim,
+                   1 - (v.embedding <=> %(q)s) as full_sim
             from videos v join channels c using (channel_id)
-            where v.lang = 'uk' and v.video_id <> %s and v.duration_s > {C.SHORTS_MAX_SECONDS}
-              and (not %s or v.made_for_kids or c.kids)
-            order by (v.embedding <=> %s) + 0
-            limit %s""",
-        (vector, exclude_id, kids, vector, limit),
+            where v.lang = 'uk' and v.video_id <> %(vid)s
+              and (v.duration_s > {C.SHORTS_MAX_SECONDS} or (c.kids and v.duration_s > {C.KIDS_SHORTS_MAX_SECONDS}))
+              and v.channel_id is distinct from %(ch)s
+              and (not %(kids)s or v.made_for_kids or c.kids)
+            order by ({w} * (coalesce(v.title_embedding, v.embedding) <=> %(t)s)
+                      + {1 - w} * (v.embedding <=> %(q)s)) + 0
+            limit %(limit)s""",
+        dict(t=tvec, q=qvec, vid=exclude_id, ch=exclude_channel, kids=kids, limit=limit),
     ).fetchall()
+    return [
+        dict(video_id=r[0], title=r[1], tags=r[2], channel=r[3], channel_id=r[4],
+             title_sim=float(r[5]), full_sim=float(r[6]), score=combined(float(r[5]), float(r[6])))
+        for r in rows
+    ]
 
 
 def pick(cands, min_score: float, max_score: float = 2.0):
@@ -327,11 +387,11 @@ def take_search_budget(conn) -> bool:
     return calls <= C.SEARCH_DAILY_LIMIT
 
 
-def youtube_search(conn, query_text: str, query_vec, lang: str, kids: bool, exclude_id: str):
+def youtube_search(conn, query_text: str, qvec, tvec, lang: str, kids: bool, exclude_id: str, exclude_channel=None):
     """search.list (100 одиниць) + videos.list (1 одиниця), лише якщо лишився денний бюджет."""
     if not take_search_budget(conn):
         return []
-    params = dict(part="id", q=query_text[:100], type="video", maxResults=15,
+    params = dict(part="id", q=query_text[:100], type="video", maxResults=8,
                   relevanceLanguage=lang, regionCode="UA", safeSearch="strict" if kids else "moderate")
     try:
         found = state["yt"].get("search", **params).get("items", [])
@@ -346,7 +406,7 @@ def youtube_search(conn, query_text: str, query_vec, lang: str, kids: bool, excl
         sn, cd = v["snippet"], v["contentDetails"]
         if sn.get("liveBroadcastContent", "none") != "none" or is_short(parse_duration(cd.get("duration", ""))):
             continue
-        if not available_in_ukraine(cd):
+        if not available_in_ukraine(cd) or sn.get("channelId") == exclude_channel:
             continue
         if kids and not v.get("status", {}).get("madeForKids"):
             continue
@@ -360,30 +420,36 @@ def youtube_search(conn, query_text: str, query_vec, lang: str, kids: bool, excl
     if not good:
         return []
 
-    vecs = embed_many([C.embedding_text(v["snippet"]["title"], v["snippet"].get("tags"), v["snippet"].get("description")) for v in good])
+    texts = [C.embedding_text(v["snippet"]["title"], v["snippet"].get("tags"), v["snippet"].get("description")) for v in good]
+    titles = [C.title_text(v["snippet"]["title"]) for v in good]
+    vecs = embed_many(texts + titles)
+    full_vecs, title_vecs = vecs[: len(good)], vecs[len(good):]
     out = []
-    for v, vec in zip(good, vecs):
-        score = float(np.dot(query_vec, vec))  # вектори нормовані, тож це косинусна схожість
+    for v, fv, tv in zip(good, full_vecs, title_vecs):
+        # Вектори нормовані, тож скалярний добуток і є косинусною схожістю.
+        title_sim, full_sim = float(np.dot(tvec, tv)), float(np.dot(qvec, fv))
+        score = combined(title_sim, full_sim)
         out.append(dict(video_id=v["id"], title=v["snippet"]["title"], tags=v["snippet"].get("tags"),
                         channel=v["snippet"].get("channelTitle", ""), channel_id=v["snippet"].get("channelId"),
-                        score=score, rank=score))
+                        title_sim=title_sim, full_sim=full_sim, score=score, rank=score))
     return out
 
 
 # ---------------------------------------------------------------- Лог для підбору порогів
 
 
-def log_answer(video_id, mode, src, response, best_score):
+def log_answer(video_id, mode, src, response, stats):
     os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
     new = not os.path.exists(LOG_PATH)
     with open(LOG_PATH, "a", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         if new:
             w.writerow(["time", "video_id", "mode", "source_title", "source_lang", "source_conf", "level",
-                        "best_index_score", "alt1", "score1", "alt2", "score2", "alt3", "score3"])
+                        "best_score", "median_score", "margin", "alt1", "score1", "alt2", "score2", "alt3", "score3"])
+        r3 = lambda x: round(x, 3) if x is not None else ""
         row = [dt.datetime.now().isoformat(timespec="seconds"), video_id, mode, src.get("title", ""),
                src.get("lang"), round(src.get("confidence", 0), 2), response["level"],
-               round(best_score, 3) if best_score is not None else ""]
+               r3(stats.get("best")), r3(stats.get("median")), r3(stats.get("margin"))]
         for it in response["items"][:3]:
             row += [it["title"], it["score"]]
         w.writerow(row)
@@ -406,20 +472,31 @@ def health():
 
 
 @app.get("/alternatives")
-def alternatives(videoId: str = Query(...), mode: str = Query("default", pattern="^(default|kids)$"), fresh: bool = False):
+def alternatives(
+    videoId: str = Query(...),
+    mode: str = Query("default", pattern="^(default|kids)$"),
+    fresh: bool = False,
+    debug: bool = False,
+):
+    """debug=true: свіжа відповідь без кешу й без пошуку YouTube (квота не витрачається),
+    плюс 10 найкращих кандидатів з бази з усіма цифрами схожості. Для підбору порогів."""
     if not VIDEO_ID.match(videoId):
         raise HTTPException(400, "Некоректний videoId")
     kids = mode == "kids"
+    fresh = fresh or debug
+    timer = Timer()
 
-    with db() as conn:
-        if not fresh:
+    if not fresh:
+        with db() as conn:
             cached = conn.execute(
                 f"""select response from alternatives_cache
                     where video_id = %s and mode = %s and created_at > now() - interval '{C.CACHE_HOURS} hours'""",
                 (videoId, mode),
             ).fetchone()
-            if cached:
-                return cached[0]
+        if cached:
+            print(f"[alt] {videoId} {mode} з кешу {timer.line()}", flush=True)
+            return cached[0]
+        timer.mark("cache")
 
     try:
         src = get_sources([videoId]).get(videoId)
@@ -427,11 +504,11 @@ def alternatives(videoId: str = Query(...), mode: str = Query("default", pattern
         raise HTTPException(503, f"YouTube API: {e}")
 
     if not src:
-        response = {"source": {"lang": "unknown", "confidence": 0}, "level": 5, "items": []}
-        return response
+        return {"source": {"lang": "unknown", "confidence": 0}, "level": 5, "items": []}
 
+    timer.mark("source")
     source = {"lang": src["lang"], "confidence": round(float(src["confidence"]), 2)}
-    best = None
+    stats, cands = {}, []
 
     if src["lang"] == "uk" and src["confidence"] >= C.LANG_THRESHOLD:
         # Відео вже українське: альтернативи не потрібні.
@@ -439,34 +516,43 @@ def alternatives(videoId: str = Query(...), mode: str = Query("default", pattern
     else:
         if not state["model"]:
             raise HTTPException(503, "Модель ембедінгів не завантажено")
-        query_text = C.embedding_text(src["title"], src["tags"], src["description"])
-        qvec = embed_one(query_text)
+        qvec, tvec = embed_many([C.embedding_text(src["title"], src["tags"], src["description"]),
+                                 C.title_text(src["title"])])
         qwords = keywords(src["title"] + " " + " ".join(src["tags"]))
+        timer.mark("embed")
 
         with db() as conn:
-            rows = index_candidates(conn, qvec, videoId, kids)
-            cands = [dict(video_id=r[0], title=r[1], tags=r[2], channel=r[3], channel_id=r[4], score=float(r[5]))
-                     for r in rows]
+            cands = index_candidates(conn, qvec, tvec, videoId, src.get("channel_id"), kids)
+            timer.mark("index")
             for c in cands:
                 c["rank"] = c["score"] + keyword_bonus(qwords, c["title"], c["tags"])
-            best = max((c["score"] for c in cands), default=None)
+            scores = sorted((c["score"] for c in cands), reverse=True)
+            if scores:
+                median = scores[len(scores) // 2]
+                stats = {"best": scores[0], "median": median, "margin": scores[0] - median}
+            # Найкраще відео ледь виділяється над фоном → жодне не підходить по-справжньому.
+            weak = C.MIN_MARGIN > 0 and stats and stats["margin"] < C.MIN_MARGIN
+            usable = [] if weak else cands
 
             level, items = 5, []
-            same = pick(cands, C.SAME_TOPIC_THRESHOLD)
+            same = pick(usable, C.SAME_TOPIC_THRESHOLD)
             if same:  # 1. українське на ту саму тему з нашої бази
                 level, items = 1, [item(c) for c in same]
             else:
-                found = youtube_search(conn, src["title"], qvec, "uk", kids, videoId)
+                found = [] if debug else youtube_search(
+                    conn, src["title"], qvec, tvec, "uk", kids, videoId, src.get("channel_id"))
+                timer.mark("search_uk")
                 for c in found:
                     c["rank"] = c["score"] + keyword_bonus(qwords, c["title"], c["tags"])
                 found_good = pick(found, C.CLOSE_TOPIC_THRESHOLD)
-                close = pick(cands, C.CLOSE_TOPIC_THRESHOLD, C.SAME_TOPIC_THRESHOLD)
+                close = pick(usable, C.CLOSE_TOPIC_THRESHOLD, C.SAME_TOPIC_THRESHOLD)
                 if found_good:  # 2. українське через пошук YouTube
                     level, items = 2, [item(c) for c in found_good]
                 elif close:  # 3. українське на близьку тему
                     level, items = 3, [item(c) for c in close]
-                else:  # 4. англомовне на ту саму тему
-                    en = youtube_search(conn, src["title"], qvec, "en", kids, videoId)
+                elif not debug:  # 4. англомовне на ту саму тему
+                    en = youtube_search(conn, src["title"], qvec, tvec, "en", kids, videoId, src.get("channel_id"))
+                    timer.mark("search_en")
                     for c in en:
                         c["rank"] = c["score"] + (0.05 if c["video_id"] in state["uk_dubs"] else 0)
                     en_good = pick(en, C.CLOSE_TOPIC_THRESHOLD)
@@ -474,13 +560,34 @@ def alternatives(videoId: str = Query(...), mode: str = Query("default", pattern
                         level, items = 4, [item(c, "en") for c in en_good]
             response = {"source": source, "level": level, "items": items}
 
+    if debug:
+        r3 = lambda x: round(x, 3)
+        response = dict(response)
+        response["debug"] = {
+            "timingsMs": dict(timer.parts, total=timer.total()),
+            "sourceTitle": src["title"],
+            "langSource": src.get("lang_source"),
+            "queryText": C.embedding_text(src["title"], src["tags"], src["description"]),
+            "thresholds": {"same": C.SAME_TOPIC_THRESHOLD, "close": C.CLOSE_TOPIC_THRESHOLD,
+                           "minMargin": C.MIN_MARGIN, "titleWeight": C.TITLE_WEIGHT},
+            "stats": {k: r3(v) for k, v in stats.items()},
+            "top": [
+                {"title": c["title"], "channel": c["channel"], "score": r3(c["score"]),
+                 "titleSim": r3(c["title_sim"]), "fullSim": r3(c["full_sim"]), "rank": r3(c["rank"])}
+                for c in sorted(cands, key=lambda x: -x["rank"])[:10]
+            ],
+        }
+        return response
+
     with db() as conn:
         conn.execute(
             """insert into alternatives_cache (video_id, mode, response, created_at) values (%s, %s, %s, now())
                on conflict (video_id, mode) do update set response = excluded.response, created_at = now()""",
             (videoId, mode, Jsonb(response)),
         )
-    log_answer(videoId, mode, src, response, best)
+    timer.mark("save")
+    log_answer(videoId, mode, src, response, stats)
+    print(f"[alt] {videoId} {mode} рівень {response['level']} {timer.line()}", flush=True)
     return response
 
 

@@ -53,10 +53,10 @@ def parse_duration(iso: str) -> int:
     return ((d * 24 + h) * 60 + mi) * 60 + s
 
 
-def is_short(seconds: int) -> bool:
+def is_short(seconds: int, max_seconds: int = SHORTS_MAX_SECONDS) -> bool:
     # YouTube дозволяє Shorts до 3 хвилин, а за даними API їх не відрізнити від
     # звичайних коротких відео. Тому все, що не довше 3 хвилин, не рекомендуємо.
-    return seconds <= SHORTS_MAX_SECONDS
+    return seconds <= max_seconds
 
 
 def available_in_ukraine(content_details: dict) -> bool:

@@ -22,8 +22,16 @@ import urllib.parse
 
 import requests
 
+import hashlib
+
 from config import (
+    ALGO_VERSION,
+    DESCRIPTION_STORE_CHARS,
     EMBED_DIM,
+    EMBED_PREFIX,
+    KIDS_SHORTS_MAX_SECONDS,
+    MODEL_NAME,
+    SHORTS_MAX_SECONDS,
     MAX_VIDEOS_PER_CHANNEL,
     RETENTION_DAYS,
     connect_db,
@@ -31,6 +39,7 @@ from config import (
     embedding_text,
     env,
     load_model,
+    title_text,
 )
 from lang import video_language
 from youtube import YouTube, YouTubeError, available_in_ukraine, is_short, parse_duration, published_at
@@ -131,27 +140,40 @@ def resolve_channel(yt: YouTube, ref):
     }
 
 
-def fetch_channel_videos(yt: YouTube, channel: dict, uk_since):
-    """Повертає (відібрані відео, статистика відсіву)."""
-    stats = {"total": 0, "shorts": 0, "live": 0, "blocked": 0, "before_uk_since": 0, "not_uk": 0}
+def fetch_channel_videos(yt: YouTube, channel: dict, uk_since, kids: bool = False):
+    """Повертає (відібрані відео, статистика відсіву).
 
-    try:
-        pl = yt.get(
-            "playlistItems",
-            part="contentDetails",
-            playlistId=channel["uploads"],
-            maxResults=MAX_VIDEOS_PER_CHANNEL,
-        )
-    except YouTubeError as e:
-        if "playlistNotFound" in str(e):
-            return [], stats  # канал без відео
-        raise
-    ids = [it["contentDetails"]["videoId"] for it in pl.get("items", [])]
+    Бере до MAX_VIDEOS_PER_CHANNEL останніх відео: playlistItems.list віддає по 50 за сторінку,
+    тож 200 відео коштують 4 + 4 одиниці квоти (сторінки + метадані).
+    """
+    stats = {"total": 0, "shorts": 0, "live": 0, "blocked": 0, "before_uk_since": 0, "not_uk": 0}
+    shorts_limit = KIDS_SHORTS_MAX_SECONDS if kids else SHORTS_MAX_SECONDS
+
+    ids, token = [], None
+    while len(ids) < MAX_VIDEOS_PER_CHANNEL:
+        params = dict(part="contentDetails", playlistId=channel["uploads"], maxResults=50)
+        if token:
+            params["pageToken"] = token
+        try:
+            pl = yt.get("playlistItems", **params)
+        except YouTubeError as e:
+            if "playlistNotFound" in str(e):
+                break  # канал без відео
+            raise
+        ids += [it["contentDetails"]["videoId"] for it in pl.get("items", [])]
+        token = pl.get("nextPageToken")
+        if not token:
+            break
+    ids = ids[:MAX_VIDEOS_PER_CHANNEL]
     if not ids:
         return [], stats
 
+    items = []
+    for i in range(0, len(ids), 50):
+        items += yt.videos(ids[i : i + 50])
+
     kept = []
-    for v in yt.videos(ids):
+    for v in items:
         stats["total"] += 1
         sn, cd, st = v["snippet"], v["contentDetails"], v.get("status", {})
         title, description = sn.get("title", ""), sn.get("description", "")
@@ -161,7 +183,7 @@ def fetch_channel_videos(yt: YouTube, channel: dict, uk_since):
         if sn.get("liveBroadcastContent", "none") != "none":
             stats["live"] += 1
             continue
-        if is_short(seconds):
+        if is_short(seconds, shorts_limit):
             stats["shorts"] += 1
             continue
         if not available_in_ukraine(cd):
@@ -184,7 +206,7 @@ def fetch_channel_videos(yt: YouTube, channel: dict, uk_since):
                 "video_id": v["id"],
                 "channel_id": channel["id"],
                 "title": title,
-                "description": description[:2000],
+                "description": description[:DESCRIPTION_STORE_CHARS],
                 "tags": sn.get("tags") or [],
                 "published_at": published,
                 "duration_s": seconds,
@@ -222,12 +244,19 @@ SCHEMA = [
         embedding vector({EMBED_DIM}) not null,
         fetched_at timestamptz not null default now()
     )""",
+    # Окремий вектор лише для назви (з версії алгоритму 2).
+    f"alter table videos add column if not exists title_embedding vector({EMBED_DIM})",
+    # Відбиток тексту: якщо назва/опис/теги не змінились, вектор не перераховуємо.
+    "alter table videos add column if not exists text_hash text",
+    # Сервер шукає точним перебором, приблизний індекс лише займає місце в базі.
+    "drop index if exists videos_embedding_idx",
     "create index if not exists videos_channel_idx on videos (channel_id)",
-    "create index if not exists videos_embedding_idx on videos using hnsw (embedding vector_cosine_ops)",
 ]
 
 
-def save(conn, channels: list, videos: list, embeddings):
+def save(conn, channels: list, videos: list, embeddings, title_embeddings=None):
+    if title_embeddings is None:
+        title_embeddings = [None] * len(videos)
     with conn.transaction():
         with conn.cursor() as cur:
             cur.executemany(
@@ -240,24 +269,78 @@ def save(conn, channels: list, videos: list, embeddings):
             )
             cur.executemany(
                 """insert into videos (video_id, channel_id, title, description, tags, published_at,
-                                       duration_s, made_for_kids, lang, lang_source, embedding, fetched_at)
-                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                                       duration_s, made_for_kids, lang, lang_source, embedding,
+                                       title_embedding, text_hash, fetched_at)
+                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
                    on conflict (video_id) do update set
                      channel_id = excluded.channel_id, title = excluded.title,
                      description = excluded.description, tags = excluded.tags,
                      published_at = excluded.published_at, duration_s = excluded.duration_s,
                      made_for_kids = excluded.made_for_kids, lang = excluded.lang,
                      lang_source = excluded.lang_source, embedding = excluded.embedding,
+                     title_embedding = excluded.title_embedding, text_hash = excluded.text_hash,
                      fetched_at = now()""",
                 [
                     (
                         v["video_id"], v["channel_id"], v["title"], v["description"], v["tags"],
                         v["published_at"], v["duration_s"], v["made_for_kids"], v["lang"],
-                        v["lang_source"], emb,
+                        v["lang_source"], emb, temb, v.get("text_hash"),
                     )
-                    for v, emb in zip(videos, embeddings)
+                    for v, emb, temb in zip(videos, embeddings, title_embeddings)
                 ],
             )
+
+
+def text_hash(v: dict) -> str:
+    """Відбиток усього, від чого залежать вектори. Змінилась модель, алгоритм чи текст — новий відбиток."""
+    raw = "\x1f".join([MODEL_NAME, EMBED_PREFIX, str(ALGO_VERSION), title_text(v["title"]),
+                        embedding_text(v["title"], v["tags"], v["description"])])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def split_by_hash(conn, videos: list):
+    """(відео, яким потрібні нові вектори; відео без змін)."""
+    rows = conn.execute(
+        "select video_id, text_hash, title_embedding is not null from videos where video_id = any(%s)",
+        ([v["video_id"] for v in videos],),
+    ).fetchall()
+    known = {r[0]: (r[1], r[2]) for r in rows}
+    fresh, same = [], []
+    for v in videos:
+        old_hash, has_title = known.get(v["video_id"], (None, False))
+        (same if old_hash == v["text_hash"] and has_title else fresh).append(v)
+    return fresh, same
+
+
+def touch(conn, channels: list, videos: list):
+    """Відео без змін: оновлюємо лише метадані й дату, вектори лишаємо."""
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.executemany(
+                """insert into channels (channel_id, title, url, topic, kids, uk_since, updated_at)
+                   values (%s, %s, %s, %s, %s, %s, now())
+                   on conflict (channel_id) do update set
+                     title = excluded.title, url = excluded.url, topic = excluded.topic,
+                     kids = excluded.kids, uk_since = excluded.uk_since, updated_at = now()""",
+                [(c["id"], c["title"], c["url"], c["topic"], c["kids"], c["uk_since"]) for c in channels],
+            )
+            if videos:
+                cur.executemany(
+                    """update videos set published_at = %s, duration_s = %s, made_for_kids = %s,
+                                         lang = %s, lang_source = %s, fetched_at = now()
+                       where video_id = %s""",
+                    [(v["published_at"], v["duration_s"], v["made_for_kids"], v["lang"], v["lang_source"],
+                      v["video_id"]) for v in videos],
+                )
+
+
+def drop_stale(conn, channels: list, videos: list):
+    """Відео оброблених каналів, які цього разу не пройшли відбір (наприклад, Shorts за новим
+    правилом), прибираємо, щоб база точно відповідала поточним правилам."""
+    return conn.execute(
+        "delete from videos where channel_id = any(%s) and not (video_id = any(%s))",
+        ([c["id"] for c in channels], [v["video_id"] for v in videos]),
+    ).rowcount
 
 
 def cleanup(conn, active_channel_ids: list, had_errors: bool):
@@ -300,7 +383,7 @@ def main():
                 print(f"✗ {label}: канал не знайдено на YouTube.")
                 errors += 1
                 continue
-            kept, s = fetch_channel_videos(yt, ch, parse_date(row.get("uk_since")))
+            kept, s = fetch_channel_videos(yt, ch, parse_date(row.get("uk_since")), is_yes(row.get("kids")))
         except YouTubeError as e:
             print(f"✗ {label}: помилка YouTube API: {e}")
             errors += 1
@@ -329,19 +412,32 @@ def main():
     if not videos:
         sys.exit("Жодного відео не відібрано, базу не змінюю.")
 
-    model = load_model()
-    print(f"Рахую вектори для {len(videos)} відео…")
-    embeddings = embed(model, [embedding_text(v["title"], v["tags"], v["description"]) for v in videos])
+    for v in videos:
+        v["text_hash"] = text_hash(v)
 
-    print("Записую в базу…")
     conn = connect_db()
     for stmt in SCHEMA:
         conn.execute(stmt)
-    save(conn, channels, videos, embeddings)
+    fresh, same = split_by_hash(conn, videos)
+    print(f"Нових або змінених відео: {len(fresh)}, без змін: {len(same)}.")
+
+    touch(conn, channels, same)
+    if fresh:
+        model = load_model()
+        print(f"Рахую вектори для {len(fresh)} відео…")
+        embeddings = embed(model, [embedding_text(v["title"], v["tags"], v["description"]) for v in fresh])
+        title_embeddings = embed(model, [title_text(v["title"]) for v in fresh])
+        print("Записую в базу…")
+        for i in range(0, len(fresh), 500):  # частинами, щоб не тримати одну величезну транзакцію
+            save(conn, channels if i == 0 else [], fresh[i : i + 500],
+                 embeddings[i : i + 500], title_embeddings[i : i + 500])
+    stale = drop_stale(conn, channels, videos)
     old, removed = cleanup(conn, [c["id"] for c in channels], errors > 0)
 
     total = conn.execute("select count(*) from videos").fetchone()[0]
     print(f"\nГотово. Оброблено каналів: {len(channels)}. Усього відео в базі: {total}.")
+    if stale:
+        print(f"Прибрано {stale} відео, які більше не проходять відбір (Shorts тощо).")
     if old:
         print(f"Видалено {old} відео, старших за {RETENTION_DAYS} днів.")
     if removed:
