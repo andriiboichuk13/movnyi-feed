@@ -576,7 +576,9 @@ def alternatives(
                 for c in found:
                     c["rank"] = c["score"] + keyword_bonus(qwords, c["title"], c["tags"])
                 found_good = pick(found, C.CLOSE_TOPIC_THRESHOLD)
-                close = pick(usable, C.CLOSE_TOPIC_THRESHOLD, C.SAME_TOPIC_THRESHOLD)
+                # Усе від порогу «близької теми» і вище: сюди потрапляють і відео з високою схожістю,
+                # які не пройшли додаткову перевірку рівня 1 (відрив від фону).
+                close = pick(usable, C.CLOSE_TOPIC_THRESHOLD)
                 if found_good:  # 2. українське через пошук YouTube
                     level, items = 2, [item(c) for c in found_good]
                 elif close:  # 3. українське на близьку тему
