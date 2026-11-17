@@ -248,8 +248,8 @@ SCHEMA = [
     f"alter table videos add column if not exists title_embedding vector({EMBED_DIM})",
     # Відбиток тексту: якщо назва/опис/теги не змінились, вектор не перераховуємо.
     "alter table videos add column if not exists text_hash text",
-    # Сервер шукає точним перебором, приблизний індекс лише займає місце в базі.
-    "drop index if exists videos_embedding_idx",
+    # Індекс векторів, яким сервер швидко знаходить найближчі відео.
+    "create index if not exists videos_embedding_hnsw on videos using hnsw (embedding vector_cosine_ops)",
     "create index if not exists videos_channel_idx on videos (channel_id)",
 ]
 

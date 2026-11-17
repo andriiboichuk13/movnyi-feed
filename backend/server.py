@@ -109,6 +109,12 @@ state = {}
 model_lock = threading.Lock()
 
 
+def configure_connection(conn):
+    register_vector(conn)
+    # За замовчуванням індекс віддає лише ~40 найближчих; нам треба INDEX_PREFETCH.
+    conn.execute(f"set hnsw.ef_search = {max(40, C.INDEX_PREFETCH)}")
+
+
 class Timer:
     """Скільки мілісекунд зайняв кожен етап відповіді. Пишеться в лог сервера."""
 
@@ -137,6 +143,10 @@ async def lifespan(app: FastAPI):
     for stmt in SCHEMA:
         first.execute(stmt)
     first.execute(f"alter table if exists videos add column if not exists title_embedding vector({C.EMBED_DIM})")
+    # Індекс векторів для швидкого пошуку найближчих відео. Будується один раз (на 13 тис. відео
+    # це до хвилини); якщо вже є, команда нічого не робить.
+    if first.execute("select to_regclass('videos')").fetchone()[0]:
+        first.execute("create index if not exists videos_embedding_hnsw on videos using hnsw (embedding vector_cosine_ops)")
     # Змінився алгоритм → старі готові відповіді й визначені мови більше не годяться.
     row = first.execute("select value from meta where key = 'algo_version'").fetchone()
     if not row or row[0] != str(C.ALGO_VERSION):
@@ -157,7 +167,7 @@ async def lifespan(app: FastAPI):
         min_size=2,  # тримаємо з'єднання з базою відкритими, щоб не витрачати час на нові
         max_size=5,
         kwargs={"autocommit": True},
-        configure=register_vector,
+        configure=configure_connection,
         open=True,
     )
     yt_key = (os.getenv("YOUTUBE_API_KEY") or "").strip()
@@ -322,24 +332,41 @@ def index_candidates(conn, qvec, tvec, exclude_id: str, exclude_channel, kids: b
     """Кандидати з бази. Схожість рахуємо двічі: назва з назвою і назва+опис з назвою+описом.
 
     Відео з того самого каналу, що й вихідне, не пропонуємо: їх і так видно в рекомендаціях YouTube.
-    «+ 0» у сортуванні вимикає приблизний індекс: на кількох тисячах відео точний перебір
-    швидкий і не губить кандидатів після фільтра дитячого режиму.
+
+    Звичайний режим: індекс векторів швидко дає INDEX_PREFETCH найближчих відео за назвою+описом,
+    і вже серед них рахуємо остаточну схожість із врахуванням назви.
+    Дитячий режим: точний перебір лише серед дитячих відео. Їх небагато, а індекс після
+    фільтра «лише дитячі» загубив би більшість кандидатів.
     """
     w = C.TITLE_WEIGHT
-    rows = conn.execute(
-        f"""select v.video_id, v.title, v.tags, c.title, v.channel_id,
-                   1 - (coalesce(v.title_embedding, v.embedding) <=> %(t)s) as title_sim,
-                   1 - (v.embedding <=> %(q)s) as full_sim
-            from videos v join channels c using (channel_id)
-            where v.lang = 'uk' and v.video_id <> %(vid)s
+    where = f"""v.lang = 'uk' and v.video_id <> %(vid)s
               and (v.duration_s > {C.SHORTS_MAX_SECONDS} or (c.kids and v.duration_s > {C.KIDS_SHORTS_MAX_SECONDS}))
-              and v.channel_id is distinct from %(ch)s
-              and (not %(kids)s or v.made_for_kids or c.kids)
-            order by ({w} * (coalesce(v.title_embedding, v.embedding) <=> %(t)s)
-                      + {1 - w} * (v.embedding <=> %(q)s)) + 0
-            limit %(limit)s""",
-        dict(t=tvec, q=qvec, vid=exclude_id, ch=exclude_channel, kids=kids, limit=limit),
-    ).fetchall()
+              and v.channel_id is distinct from %(ch)s"""
+    score = f"""({w} * (coalesce(v.title_embedding, v.embedding) <=> %(t)s) + {1 - w} * (v.embedding <=> %(q)s))"""
+    params = dict(t=tvec, q=qvec, vid=exclude_id, ch=exclude_channel, limit=limit, prefetch=C.INDEX_PREFETCH)
+
+    if kids:
+        sql = f"""select v.video_id, v.title, v.tags, c.title, v.channel_id,
+                         1 - (coalesce(v.title_embedding, v.embedding) <=> %(t)s) as title_sim,
+                         1 - (v.embedding <=> %(q)s) as full_sim
+                  from videos v join channels c using (channel_id)
+                  where {where} and (v.made_for_kids or c.kids)
+                  order by {score} + 0
+                  limit %(limit)s"""
+    else:
+        sql = f"""with near as (
+                      select video_id from videos
+                      order by embedding <=> %(q)s
+                      limit %(prefetch)s
+                  )
+                  select v.video_id, v.title, v.tags, c.title, v.channel_id,
+                         1 - (coalesce(v.title_embedding, v.embedding) <=> %(t)s) as title_sim,
+                         1 - (v.embedding <=> %(q)s) as full_sim
+                  from near join videos v using (video_id) join channels c using (channel_id)
+                  where {where}
+                  order by {score}
+                  limit %(limit)s"""
+    rows = conn.execute(sql, params).fetchall()
     return [
         dict(video_id=r[0], title=r[1], tags=r[2], channel=r[3], channel_id=r[4],
              title_sim=float(r[5]), full_sim=float(r[6]), score=combined(float(r[5]), float(r[6])))
@@ -537,7 +564,8 @@ def alternatives(
             level, items = 5, []
             same = pick(usable, C.SAME_TOPIC_THRESHOLD)
             if same:  # 1. українське на ту саму тему з нашої бази
-                level, items = 1, [item(c) for c in same]
+                # Решту місць у панелі заповнюємо відео «близької теми», щоб не показувати одне-єдине.
+                level, items = 1, [item(c) for c in pick(usable, C.CLOSE_TOPIC_THRESHOLD)]
             else:
                 found = [] if debug else youtube_search(
                     conn, src["title"], qvec, tvec, "uk", kids, videoId, src.get("channel_id"))
