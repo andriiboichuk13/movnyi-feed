@@ -10,7 +10,7 @@ const MF_CONFIG = {
   // Після деплою: "https://назва.up.railway.app".
   // Якщо домен бекенду не *.onrender.com і не *.up.railway.app,
   // додайте його в host_permissions у manifest.json.
-  API_BASE: "http://localhost:8000",
+  API_BASE: "https://movnyi-feed-production.up.railway.app",
 
   // true = бекенд не потрібен, відповіді беруться із заглушки (src/api-mock.js).
   // Поставте false, коли GET /alternatives запрацює на бекенді.
