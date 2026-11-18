@@ -13,6 +13,7 @@
 
 import csv
 import datetime as dt
+import hmac
 import logging
 import os
 import re
@@ -22,7 +23,7 @@ from contextlib import asynccontextmanager
 from typing import List, Literal, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -144,6 +145,7 @@ async def lifespan(app: FastAPI):
     first = C.connect_db()  # створює розширення vector, якщо його ще немає
     for stmt in SCHEMA:
         first.execute(stmt)
+    wishes_pipeline.ensure_wishes_columns(first)
     first.execute(f"alter table if exists videos add column if not exists title_embedding vector({C.EMBED_DIM})")
     # Індекс векторів для швидкого пошуку найближчих відео. Будується один раз (на 13 тис. відео
     # це до хвилини); якщо вже є, команда нічого не робить.
@@ -732,7 +734,7 @@ def actions(body: ActionsBody):
     return {"ok": True, "inserted": len(rows)}
 
 
-CREATORS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "creators")
+CREATORS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "creators")
 if os.path.isdir(CREATORS_DIR):
     app.mount("/creators/assets", StaticFiles(directory=CREATORS_DIR), name="creators-assets")
 
@@ -754,7 +756,7 @@ def creators_dashboard():
 def creators_overview(
     days: Optional[int] = Query(None, ge=1, le=3650),
     topic_id: Optional[int] = Query(None, ge=1),
-    level: Optional[int] = Query(None, ge=0, le=3),
+    level: Optional[int] = Query(None, ge=0, le=5),
     q: Optional[str] = Query(None, max_length=120),
 ):
     """Агрегована аналітика побажань із таблиці `wishes` для українських авторів."""
@@ -773,8 +775,17 @@ class ProcessWishesBody(BaseModel):
 
 
 @app.post("/api/creators/process")
-def creators_process(body: Optional[ProcessWishesBody] = None):
+def creators_process(
+    body: Optional[ProcessWishesBody] = None,
+    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+):
     """Запускає класифікацію тем та оновлення метаданих для записів у `wishes`."""
+    expected = (os.getenv("ADMIN_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(503, "ADMIN_TOKEN не налаштовано на сервері")
+    if not x_admin_token or not hmac.compare_digest(x_admin_token, expected):
+        raise HTTPException(403, "Недійсний токен адміністратора")
+
     force = bool(body.force) if body else False
     with db() as conn:
         updated = wishes_pipeline.process_unprocessed_wishes(conn, force=force)

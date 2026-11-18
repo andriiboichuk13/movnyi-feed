@@ -18,6 +18,7 @@ import difflib
 import logging
 import re
 import threading
+import time
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -117,15 +118,17 @@ TOPIC_TAXONOMY: List[Dict[str, Any]] = [
 
 SENTIMENT_PROTOTYPES: List[Tuple[str, str]] = [
     ("Позитивний / Хочу ще", "гарний вибір, чудово, супер, дякую, хочу ще, класно, топ"),
-    ("Негативний / Не підійшло", "погано, не підходить, жах, фігня, хуйня, нерелевантно, не те"),
+    ("Негативний / Не підійшло", "погано, не підходить, жах, неякісно, нерелевантно, не те, марно"),
     ("Запит на тему", "зробіть відео про, хочу українською, бракує контенту, шукаю україномовний канал"),
 ]
 
 LEVEL_LABELS = {
-    1: "Рівень 1 · Та сама тема",
-    2: "Рівень 2 · Пошук за ключовими словами",
-    3: "Рівень 3 · Близька тема",
-    0: "Не знайдено альтернатив",
+    0: "Рівень 0 · Відео вже українське",
+    1: "Рівень 1 · Та сама тема (база)",
+    2: "Рівень 2 · Пошук YouTube українською",
+    3: "Рівень 3 · Близька тема (база)",
+    4: "Рівень 4 · Пошук YouTube англійською",
+    5: "Рівень 5 · Нічого не знайшли",
     None: "Рівень не вказано",
 }
 
@@ -145,7 +148,11 @@ _models_lock = threading.Lock()
 _embed_model = None
 _ner_pipeline = None
 _ner_failed = False
-_token_cache: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+_token_cache: Dict[Tuple[str, str, bool], List[Dict[str, Any]]] = {}
+_cache_lock = threading.Lock()
+_analytics_cache: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
+ANALYTICS_CACHE_TTL_SECONDS = 180
+MAX_WISHES_LIMIT = 200
 
 
 def set_embed_model(model) -> None:
@@ -194,16 +201,20 @@ def _prepare_text_for_ner(text: str) -> str:
     return C.normalize_caps((text or "").strip())
 
 
-def extract_tokens(video_title: Optional[str], user_text: Optional[str] = None) -> List[Dict[str, Any]]:
+def extract_tokens(
+    video_title: Optional[str],
+    user_text: Optional[str] = None,
+    use_ner: bool = True,
+) -> List[Dict[str, Any]]:
     """Витягує класифіковані токени/сутності з назви відео й тексту побажання.
 
     Повертає список словників: {token, entity_group, score, source}.
     """
-    cache_key = ((video_title or "").strip(), (user_text or "").strip())
+    cache_key = ((video_title or "").strip(), (user_text or "").strip(), use_ner)
     if cache_key in _token_cache:
         return _token_cache[cache_key]
 
-    ner = get_ner_pipeline()
+    ner = get_ner_pipeline() if use_ner else None
     results: List[Dict[str, Any]] = []
     seen = set()
 
@@ -387,6 +398,22 @@ def classify_sentiments(user_texts: List[Optional[str]]) -> List[str]:
     return results
 
 
+def _is_unmet(level_reached: Optional[int]) -> bool:
+    """Рівні 4–5 (або невідомо) означають, що україномовного відео не знайдено."""
+    return level_reached is None or level_reached in (4, 5)
+
+
+def ensure_wishes_columns(conn) -> None:
+    """Додає колонки для збереження NER-сутностей і тональності, якщо їх ще немає."""
+    conn.execute("alter table if exists wishes add column if not exists extracted_tokens jsonb")
+    conn.execute("alter table if exists wishes add column if not exists sentiment text")
+
+
+def invalidate_analytics_cache() -> None:
+    with _cache_lock:
+        _analytics_cache.clear()
+
+
 def group_wishes_semantically(
     wish_records: List[Dict[str, Any]],
     wish_vecs: np.ndarray,
@@ -431,7 +458,7 @@ def group_wishes_semantically(
             first_title = (items[0].get("video_title") or "Запит без назви").strip()
             cluster_label = first_title[:55] + ("…" if len(first_title) > 55 else "")
 
-        unmet = sum(1 for it in items if it.get("level_reached") is None or it.get("level_reached") != 1)
+        unmet = sum(1 for it in items if _is_unmet(it.get("level_reached")))
         avg_conf = round(
             float(np.mean([it["topic_confidence"] for it in items if it.get("topic_confidence") is not None] or [0.0])),
             3,
@@ -449,7 +476,7 @@ def group_wishes_semantically(
                     "id": it["id"],
                     "video_id": it["video_id"],
                     "video_title": it["video_title"],
-                    "user_text": it["user_text"],
+                    "has_user_text": it["has_user_text"],
                     "level_reached": it["level_reached"],
                 }
                 for it in items[:5]
@@ -462,8 +489,11 @@ def group_wishes_semantically(
 
 def process_unprocessed_wishes(conn, force: bool = False) -> int:
     """Класифікує необроблені (або всі, якщо force=True) рядки `wishes` і записує в Supabase."""
+    from psycopg.types.json import Jsonb
+
+    ensure_wishes_columns(conn)
     topic_map, subtopic_map = ensure_topics_seeded(conn)
-    where_clause = "" if force else "where processed_at is null or topic_id is null"
+    where_clause = "" if force else "where processed_at is null or topic_id is null or extracted_tokens is null"
     rows = conn.execute(
         f"select id, video_title, user_text from wishes {where_clause} order by id asc"
     ).fetchall()
@@ -473,20 +503,25 @@ def process_unprocessed_wishes(conn, force: bool = False) -> int:
 
     texts = [f"{r[1] or ''} {r[2] or ''}".strip() or "невідома тема" for r in rows]
     classifications, _ = classify_wish_topics(texts)
+    sentiments = classify_sentiments([r[2] for r in rows])
     now = dt.datetime.now(dt.timezone.utc)
 
-    for (wish_id, _, _), cls in zip(rows, classifications):
+    for (wish_id, title, user_text), cls, sent in zip(rows, classifications, sentiments):
         t_id = topic_map.get(cls["topic_name"])
         s_id = subtopic_map.get((cls["topic_name"], cls["subtopic_name"]))
+        tokens = extract_tokens(title, user_text, use_ner=True)
         conn.execute(
             """update wishes
                set topic_id = %s,
                    subtopic_id = %s,
                    topic_confidence = %s,
+                   extracted_tokens = %s,
+                   sentiment = %s,
                    processed_at = %s
                where id = %s""",
-            (t_id, s_id, cls["confidence"], now, wish_id),
+            (t_id, s_id, cls["confidence"], Jsonb(tokens), sent, now, wish_id),
         )
+    invalidate_analytics_cache()
     return len(rows)
 
 
@@ -547,15 +582,12 @@ def _fetch_wishes_rows(
         conditions.append("w.topic_id = %s")
         params.append(topic_id)
     if level is not None:
-        if level == 0:
-            conditions.append("(w.level_reached is null or w.level_reached = 0)")
-        else:
-            conditions.append("w.level_reached = %s")
-            params.append(level)
+        conditions.append("w.level_reached = %s")
+        params.append(level)
     if query and query.strip():
         like = f"%{query.strip()}%"
-        conditions.append("(w.video_title ilike %s or w.user_text ilike %s)")
-        params.extend([like, like])
+        conditions.append("w.video_title ilike %s")
+        params.append(like)
 
     where_sql = f"where {' and '.join(conditions)}" if conditions else ""
 
@@ -574,12 +606,15 @@ def _fetch_wishes_rows(
             w.subtopic_id,
             st.name as subtopic_name,
             w.topic_confidence,
-            w.processed_at
+            w.processed_at,
+            w.extracted_tokens,
+            w.sentiment
         from wishes w
         left join topics t on t.id = w.topic_id
         left join topics st on st.id = w.subtopic_id
         {where_sql}
         order by w.created_at desc
+        limit {MAX_WISHES_LIMIT}
         """,
         params,
     ).fetchall()
@@ -593,6 +628,13 @@ def build_creators_analytics(
     query: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Збирає агреговану аналітику по таблиці `wishes` для вебсайту креаторів."""
+    cache_key = (days, topic_id, level, (query or "").strip().lower())
+    now_ts = time.monotonic()
+    with _cache_lock:
+        cached = _analytics_cache.get(cache_key)
+        if cached and (now_ts - cached[0]) < ANALYTICS_CACHE_TTL_SECONDS:
+            return cached[1]
+
     # Отримуємо доступні теми для фільтру у UI та синтаксичного fallback-пошуку.
     available_topics = [
         {"id": r[0], "name": r[1]}
@@ -622,7 +664,7 @@ def build_creators_analytics(
                 }
 
     if not rows:
-        return {
+        result = {
             "summary": {
                 "total_wishes": 0,
                 "unique_installs": 0,
@@ -633,8 +675,7 @@ def build_creators_analytics(
                 "avg_confidence": 0.0,
             },
             "search_suggestion": search_suggestion,
-            "search_suggestion": search_suggestion,
-        "available_topics": available_topics,
+            "available_topics": available_topics,
             "topics": [],
             "clusters": [],
             "tokens": [],
@@ -643,10 +684,26 @@ def build_creators_analytics(
             "timeline": [],
             "wishes": [],
         }
+        with _cache_lock:
+            _analytics_cache[cache_key] = (now_ts, result)
+        return result
 
     texts_for_model = [f"{r[4] or ''} {r[5] or ''}".strip() or "невідома тема" for r in rows]
-    live_cls, wish_vecs = classify_wish_topics(texts_for_model)
-    sentiments = classify_sentiments([r[5] for r in rows])
+    wish_vecs = _encode_texts(texts_for_model)
+
+    unprocessed_indices = [i for i, r in enumerate(rows) if r[8] is None]
+    live_cls_map: Dict[int, Dict[str, Any]] = {}
+    if unprocessed_indices:
+        live_cls, _ = classify_wish_topics([texts_for_model[i] for i in unprocessed_indices])
+        for i, cls in zip(unprocessed_indices, live_cls):
+            live_cls_map[i] = cls
+
+    unsentiment_indices = [i for i, r in enumerate(rows) if r[14] is None]
+    live_sent_map: Dict[int, str] = {}
+    if unsentiment_indices:
+        live_sents = classify_sentiments([rows[i][5] for i in unsentiment_indices])
+        for i, s in zip(unsentiment_indices, live_sents):
+            live_sent_map[i] = s
 
     wish_records: List[Dict[str, Any]] = []
     unique_installs = set()
@@ -666,14 +723,17 @@ def build_creators_analytics(
             st_name,
             t_conf,
             processed_at,
+            db_tokens,
+            db_sentiment,
         ) = r
         unique_installs.add(install_id)
 
-        # Якщо запис ще не оброблено у БД, показуємо live-класифікацію моделі.
-        effective_topic = t_name or live_cls[idx]["topic_name"]
-        effective_subtopic = st_name or live_cls[idx]["subtopic_name"]
-        effective_conf = round(float(t_conf), 3) if t_conf is not None else live_cls[idx]["confidence"]
-        tokens = extract_tokens(video_title, user_text)
+        # Якщо запис ще не оброблено у БД, показуємо легкий fallback без завантаження NER.
+        effective_topic = t_name or live_cls_map[idx]["topic_name"]
+        effective_subtopic = st_name or live_cls_map[idx]["subtopic_name"]
+        effective_conf = round(float(t_conf), 3) if t_conf is not None else live_cls_map[idx]["confidence"]
+        tokens = db_tokens if isinstance(db_tokens, list) else extract_tokens(video_title, user_text, use_ner=False)
+        sentiment = db_sentiment or live_sent_map.get(idx, "Без коментаря")
 
         wish_records.append({
             "id": w_id,
@@ -681,7 +741,7 @@ def build_creators_analytics(
             "date": created_at.date().isoformat() if created_at else None,
             "video_id": video_id,
             "video_title": video_title,
-            "user_text": user_text,
+            "has_user_text": bool((user_text or "").strip()),
             "level_reached": level_reached,
             "topic_id": t_id,
             "topic_name": effective_topic,
@@ -689,7 +749,7 @@ def build_creators_analytics(
             "subtopic_name": effective_subtopic,
             "topic_confidence": effective_conf,
             "processed_at": processed_at.isoformat() if processed_at else None,
-            "sentiment": sentiments[idx],
+            "sentiment": sentiment,
             "tokens": tokens,
         })
 
@@ -710,7 +770,7 @@ def build_creators_analytics(
             }
         entry = topic_agg[t_name]
         entry["count"] += 1
-        if w["level_reached"] is None or w["level_reached"] != 1:
+        if _is_unmet(w["level_reached"]):
             entry["unmet_count"] += 1
         entry["conf_sum"] += w["topic_confidence"] or 0.0
         if w["subtopic_name"]:
@@ -792,7 +852,7 @@ def build_creators_analytics(
     for w in wish_records:
         if w["date"]:
             day_buckets[w["date"]]["count"] += 1
-            if w["level_reached"] is None or w["level_reached"] != 1:
+            if _is_unmet(w["level_reached"]):
                 day_buckets[w["date"]]["unmet_count"] += 1
     timeline_list = [
         {"date": d, "count": v["count"], "unmet_count": v["unmet_count"]}
@@ -800,11 +860,11 @@ def build_creators_analytics(
     ]
 
     processed_count = sum(1 for w in wish_records if w["processed_at"] is not None)
-    unmet_demand = sum(1 for w in wish_records if w["level_reached"] is None or w["level_reached"] != 1)
-    with_user_text = sum(1 for w in wish_records if (w["user_text"] or "").strip())
+    unmet_demand = sum(1 for w in wish_records if _is_unmet(w["level_reached"]))
+    with_user_text = sum(1 for w in wish_records if w["has_user_text"])
     avg_confidence = round(float(np.mean([w["topic_confidence"] for w in wish_records])), 3)
 
-    return {
+    result = {
         "summary": {
             "total_wishes": total,
             "unique_installs": len(unique_installs),
@@ -824,6 +884,9 @@ def build_creators_analytics(
         "timeline": timeline_list,
         "wishes": wish_records,
     }
+    with _cache_lock:
+        _analytics_cache[cache_key] = (now_ts, result)
+    return result
 
 
 def main():
