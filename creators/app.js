@@ -323,7 +323,20 @@ function renderWishesTable(wishes) {
     .join("");
 }
 
+function renderSearchSuggestion(suggestion) {
+  const banner = el("search-suggestion");
+  if (!suggestion) {
+    banner.hidden = true;
+    banner.innerHTML = "";
+    return;
+  }
+  const simPct = Math.round((suggestion.similarity || 0) * 100);
+  banner.hidden = false;
+  banner.innerHTML = `Точних збігів за запитом «<strong>${escapeHtml(suggestion.query)}</strong>» не знайдено. Показано найближчу за назвою тему: <strong>${escapeHtml(suggestion.matched_topic_name)}</strong> (синтаксична схожість: ${simPct}%).`;
+}
+
 function renderAll(data) {
+  renderSearchSuggestion(data.search_suggestion || null);
   renderTopicSelect(data.available_topics || []);
   renderKpis(data.summary || {});
   renderCharts(data);

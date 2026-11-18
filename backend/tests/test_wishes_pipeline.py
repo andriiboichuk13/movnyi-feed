@@ -134,3 +134,19 @@ def test_creators_endpoints_and_dashboard_route():
         assert proc.status_code == 200
         assert proc.json()["ok"] is True
         assert proc.json()["processed"] == 1
+
+
+def test_syntactic_topic_fallback_on_typo():
+    topics = [
+        {"id": 1, "name": "Ігри та кіберспорт"},
+        {"id": 2, "name": "Кулінарія та їжа"},
+        {"id": 3, "name": "Технології та гаджети"},
+    ]
+    closest = wp.find_closest_topic_syntactic("кулінаряя", topics)
+    assert closest is not None
+    assert closest["id"] == 2
+    assert closest["name"] == "Кулінарія та їжа"
+
+    closest_games = wp.find_closest_topic_syntactic("ігрри", topics)
+    assert closest_games is not None
+    assert closest_games["id"] == 1

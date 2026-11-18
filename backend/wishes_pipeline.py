@@ -14,6 +14,7 @@
 
 import argparse
 import datetime as dt
+import difflib
 import logging
 import re
 import threading
@@ -489,14 +490,53 @@ def process_unprocessed_wishes(conn, force: bool = False) -> int:
     return len(rows)
 
 
-def build_creators_analytics(
+def find_closest_topic_syntactic(
+    query_text: str,
+    topics: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Знаходить топік, назва якого синтаксично найближча до пошукового запиту."""
+    q = (query_text or "").strip().lower()
+    if not q or not topics:
+        return None
+
+    best_topic: Optional[Dict[str, Any]] = None
+    best_score = -1.0
+    q_words = [w for w in re.split(r"\s+", q) if w]
+
+    for topic in topics:
+        name = (topic.get("name") or "").strip()
+        name_low = name.lower()
+        if not name_low:
+            continue
+        full_ratio = difflib.SequenceMatcher(None, q, name_low).ratio()
+        name_words = [w for w in re.split(r"[\s,·—-]+", name_low) if len(w) >= 2]
+        word_ratio = max(
+            (
+                difflib.SequenceMatcher(None, qw, nw).ratio()
+                for qw in q_words
+                for nw in name_words
+            ),
+            default=0.0,
+        )
+        score = max(full_ratio, word_ratio)
+        if score > best_score:
+            best_score = score
+            best_topic = {
+                "id": topic["id"],
+                "name": name,
+                "similarity": round(score, 3),
+            }
+
+    return best_topic
+
+
+def _fetch_wishes_rows(
     conn,
     days: Optional[int] = None,
     topic_id: Optional[int] = None,
     level: Optional[int] = None,
     query: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Збирає агреговану аналітику по таблиці `wishes` для вебсайту креаторів."""
+):
     conditions: List[str] = []
     params: List[Any] = []
 
@@ -519,7 +559,7 @@ def build_creators_analytics(
 
     where_sql = f"where {' and '.join(conditions)}" if conditions else ""
 
-    rows = conn.execute(
+    return conn.execute(
         f"""
         select
             w.id,
@@ -544,11 +584,42 @@ def build_creators_analytics(
         params,
     ).fetchall()
 
-    # Отримуємо доступні теми для фільтру у UI.
+
+def build_creators_analytics(
+    conn,
+    days: Optional[int] = None,
+    topic_id: Optional[int] = None,
+    level: Optional[int] = None,
+    query: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Збирає агреговану аналітику по таблиці `wishes` для вебсайту креаторів."""
+    # Отримуємо доступні теми для фільтру у UI та синтаксичного fallback-пошуку.
     available_topics = [
         {"id": r[0], "name": r[1]}
         for r in conn.execute("select id, name from topics where parent_id is null order by name").fetchall()
     ]
+
+    rows = _fetch_wishes_rows(conn, days=days, topic_id=topic_id, level=level, query=query)
+    search_suggestion: Optional[Dict[str, Any]] = None
+
+    if not rows and query and query.strip():
+        closest = find_closest_topic_syntactic(query, available_topics)
+        if closest is not None:
+            fallback_rows = _fetch_wishes_rows(
+                conn,
+                days=days,
+                topic_id=closest["id"],
+                level=level,
+                query=None,
+            )
+            if fallback_rows:
+                rows = fallback_rows
+                search_suggestion = {
+                    "query": query.strip(),
+                    "matched_topic_id": closest["id"],
+                    "matched_topic_name": closest["name"],
+                    "similarity": closest["similarity"],
+                }
 
     if not rows:
         return {
@@ -561,7 +632,9 @@ def build_creators_analytics(
                 "top_topic": None,
                 "avg_confidence": 0.0,
             },
-            "available_topics": available_topics,
+            "search_suggestion": search_suggestion,
+            "search_suggestion": search_suggestion,
+        "available_topics": available_topics,
             "topics": [],
             "clusters": [],
             "tokens": [],
@@ -741,6 +814,7 @@ def build_creators_analytics(
             "top_topic": topics_list[0]["name"] if topics_list else None,
             "avg_confidence": avg_confidence,
         },
+        "search_suggestion": search_suggestion,
         "available_topics": available_topics,
         "topics": topics_list,
         "clusters": clusters,

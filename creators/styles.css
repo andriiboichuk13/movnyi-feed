@@ -159,6 +159,19 @@ body {
   background: var(--surface-2);
 }
 
+.search-suggestion {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.32);
+  color: #dbeafe;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+}
+
+.search-suggestion strong {
+  color: #fcd34d;
+}
+
 .btn-spinner {
   display: none;
   width: 14px;
