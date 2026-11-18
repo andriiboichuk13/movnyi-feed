@@ -24,7 +24,7 @@ from typing import List, Literal, Optional
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pgvector.psycopg import register_vector
 from psycopg.types.json import Jsonb
@@ -735,6 +735,11 @@ def actions(body: ActionsBody):
 CREATORS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "creators")
 if os.path.isdir(CREATORS_DIR):
     app.mount("/creators/assets", StaticFiles(directory=CREATORS_DIR), name="creators-assets")
+
+
+@app.get("/", include_in_schema=False)
+def root_redirect():
+    return RedirectResponse(url="/creators")
 
 
 @app.get("/creators", include_in_schema=False)
