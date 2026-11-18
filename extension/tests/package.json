@@ -1,0 +1,14 @@
+{
+  "name": "movnyi-feed-tests",
+  "private": true,
+  "description": "Тести розширення «Мовний фід». Запуск: npm install && npm test (потрібен Node.js 20+)",
+  "scripts": {
+    "test": "node --test --test-reporter=spec",
+    "test:fast": "node --test --test-reporter=spec background.test.js lang.corpus.test.js structure.test.js",
+    "selectors": "node tools/build-selectors-check.js",
+    "mock-backend": "python3 tools/mock-backend.py --port 8000"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
+  }
+}
