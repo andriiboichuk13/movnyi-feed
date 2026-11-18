@@ -144,6 +144,7 @@ _models_lock = threading.Lock()
 _embed_model = None
 _ner_pipeline = None
 _ner_failed = False
+_token_cache: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
 
 
 def set_embed_model(model) -> None:
@@ -197,6 +198,10 @@ def extract_tokens(video_title: Optional[str], user_text: Optional[str] = None) 
 
     Повертає список словників: {token, entity_group, score, source}.
     """
+    cache_key = ((video_title or "").strip(), (user_text or "").strip())
+    if cache_key in _token_cache:
+        return _token_cache[cache_key]
+
     ner = get_ner_pipeline()
     results: List[Dict[str, Any]] = []
     seen = set()
@@ -206,7 +211,8 @@ def extract_tokens(video_title: Optional[str], user_text: Optional[str] = None) 
         if not cleaned:
             continue
 
-        if ner is not None:
+        # Важкий BERT-NER запускаємо для назв відео (де містяться іменовані сутності).
+        if ner is not None and source_name == "title":
             try:
                 entities = ner(cleaned[:400])
                 for ent in entities:
@@ -269,6 +275,7 @@ def extract_tokens(video_title: Optional[str], user_text: Optional[str] = None) 
                 if len(results) >= 3:
                     break
 
+    _token_cache[cache_key] = results
     return results
 
 
@@ -382,7 +389,7 @@ def classify_sentiments(user_texts: List[Optional[str]]) -> List[str]:
 def group_wishes_semantically(
     wish_records: List[Dict[str, Any]],
     wish_vecs: np.ndarray,
-    distance_threshold: float = 0.20,
+    distance_threshold: float = 0.12,
 ) -> List[Dict[str, Any]]:
     """Групує схожі побажання у семантичні кластери для контент-ідей креаторів."""
     n = len(wish_records)
@@ -395,7 +402,7 @@ def group_wishes_semantically(
         clustering = AgglomerativeClustering(
             n_clusters=None,
             metric="cosine",
-            linkage="average",
+            linkage="complete",
             distance_threshold=distance_threshold,
         )
         labels = clustering.fit_predict(wish_vecs).tolist()
