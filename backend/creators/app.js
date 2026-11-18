@@ -1,5 +1,4 @@
 const API_OVERVIEW = "/api/creators/overview";
-const API_PROCESS = "/api/creators/process";
 
 const charts = {};
 let activeTokenFilter = "";
@@ -220,8 +219,7 @@ function renderClusters(clusters) {
         .map((w) => {
           const title = escapeHtml(w.video_title || w.video_id);
           const url = `https://www.youtube.com/watch?v=${encodeURIComponent(w.video_id)}`;
-          const comment = w.user_text ? ` — «${escapeHtml(w.user_text)}»` : "";
-          return `<div>• <a href="${url}" target="_blank" rel="noopener">${title}</a>${comment}</div>`;
+          return `<div>• <a href="${url}" target="_blank" rel="noopener">${title}</a></div>`;
         })
         .join("");
 
@@ -296,7 +294,9 @@ function renderWishesTable(wishes) {
       }) : "—";
       const url = `https://www.youtube.com/watch?v=${encodeURIComponent(w.video_id)}`;
       const title = escapeHtml(w.video_title || w.video_id);
-      const userText = w.user_text ? escapeHtml(w.user_text) : '<span class="sub-text">без тексту</span>';
+      const userTextStatus = w.has_user_text
+        ? '<span class="pill-sentiment">Із коментарем</span>'
+        : '<span class="sub-text">без тексту</span>';
       const confPct = Math.round((w.topic_confidence || 0) * 100);
       const tokensHtml = (w.tokens || [])
         .map((tok) => `<span class="tok-badge tok-${escapeHtml(tok.entity_group)}">${escapeHtml(tok.token)}</span>`)
@@ -309,7 +309,7 @@ function renderWishesTable(wishes) {
             <a class="video-link" href="${url}" target="_blank" rel="noopener">${title}</a>
             <div class="sub-text">${escapeHtml(w.video_id)}</div>
           </td>
-          <td>${userText}</td>
+          <td>${userTextStatus}</td>
           <td>
             <div><strong>${escapeHtml(w.topic_name || "—")}</strong></div>
             <div class="sub-text">${escapeHtml(w.subtopic_name || "")} · ${confPct}%</div>
@@ -345,29 +345,6 @@ function renderAll(data) {
   renderWishesTable(data.wishes || []);
 }
 
-async function processWishes() {
-  const btn = el("btn-process");
-  btn.disabled = true;
-  btn.classList.add("loading");
-  try {
-    const res = await fetch(API_PROCESS, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force: false }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (data.overview) renderAll(data.overview);
-    showToast(`AI-аналіз завершено: оновлено ${data.processed} записів.`);
-  } catch (err) {
-    console.error(err);
-    showToast("Помилка під час запуску AI-аналізу.");
-  } finally {
-    btn.disabled = false;
-    btn.classList.remove("loading");
-  }
-}
-
 el("filter-days").addEventListener("change", fetchOverview);
 el("filter-topic").addEventListener("change", fetchOverview);
 el("filter-level").addEventListener("change", fetchOverview);
@@ -384,6 +361,5 @@ el("btn-reset").addEventListener("click", () => {
   activeTokenFilter = "";
   fetchOverview();
 });
-el("btn-process").addEventListener("click", processWishes);
 
 fetchOverview();

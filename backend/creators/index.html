@@ -25,10 +25,6 @@
 
       <div class="topbar-actions">
         <span id="status-pill" class="status-pill">Підключення…</span>
-        <button id="btn-process" class="btn btn-primary" type="button">
-          <span class="btn-spinner" aria-hidden="true"></span>
-          <span class="btn-label">Оновити AI-аналіз</span>
-        </button>
       </div>
     </div>
   </header>
@@ -57,10 +53,12 @@
         <label for="filter-level">Рівень альтернативи</label>
         <select id="filter-level">
           <option value="">Усі рівні</option>
-          <option value="1">Рівень 1 · Та сама тема</option>
-          <option value="2">Рівень 2 · Пошук за ключовими словами</option>
-          <option value="3">Рівень 3 · Близька тема</option>
-          <option value="0">Не знайдено / не вказано</option>
+          <option value="1">Рівень 1 · Та сама тема (база)</option>
+          <option value="2">Рівень 2 · Пошук YouTube українською</option>
+          <option value="3">Рівень 3 · Близька тема (база)</option>
+          <option value="4">Рівень 4 · Пошук YouTube англійською</option>
+          <option value="5">Рівень 5 · Нічого не знайшли</option>
+          <option value="0">Рівень 0 · Відео вже українське</option>
         </select>
       </div>
 
@@ -91,7 +89,7 @@
       <article class="kpi-card card">
         <span class="kpi-label">Незакритий попит</span>
         <strong id="kpi-unmet" class="kpi-value accent-warn">—</strong>
-        <span class="kpi-meta">Не було точного збігу (рівень ≠ 1)</span>
+        <span class="kpi-meta">Не знайдено укр. відео (рівні 4–5)</span>
       </article>
 
       <article class="kpi-card card">
@@ -200,7 +198,7 @@
             <tr>
               <th>Дата</th>
               <th>Відео-джерело</th>
-              <th>Коментар глядача</th>
+              <th>Коментар</th>
               <th>Тема / Підтема</th>
               <th>Витягнуті токени</th>
               <th>Тональність</th>
