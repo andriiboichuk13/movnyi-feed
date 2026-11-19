@@ -168,9 +168,11 @@ async def lifespan(app: FastAPI):
 
     state["pool"] = ConnectionPool(
         C.env("DATABASE_URL"),
-        min_size=2,  # тримаємо з'єднання з базою відкритими, щоб не витрачати час на нові
+        min_size=1,  # тримаємо мінімум одне з'єднання, щоб не витрачати час на нові
         max_size=5,
-        kwargs={"autocommit": True},
+        max_lifetime=300,
+        check=ConnectionPool.check_connection,
+        kwargs={"autocommit": True, "connect_timeout": 10},
         configure=configure_connection,
         open=True,
     )
