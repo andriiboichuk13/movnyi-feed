@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Мовний фід · Студія ідей для авторів</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/creators/assets/styles.css" />
+  <link rel="stylesheet" href="/creators/assets/studio.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+</head>
+<body>
+  <div class="bg-glow"></div>
+
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">
+        <div class="brand-badge">UA</div>
+        <div>
+          <h1>Мовний фід <span class="accent">Студія ідей</span></h1>
+          <p class="subtitle">AI-агент шукає, що знімати українському ігровому креатору: вільні ніші, свіжі тренди, оцінка ідей і план відео</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <a class="btn btn-ghost" href="/creators">← Попит глядачів</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-content">
+    <section class="card studio-how" aria-label="Як працює Студія">
+      <ol class="studio-steps">
+        <li><span class="step-n">1</span><div><strong>Ідея креатора</strong><span>«Хочу знімати Minecraft, люблю будувати міста»</span></div></li>
+        <li><span class="step-n">2</span><div><strong>Свіжі тренди</strong><span>агент сам відкриває Modrinth, minecraft.net, Steam чи Roblox Charts</span></div></li>
+        <li><span class="step-n">3</span><div><strong>Покриття й прогалини</strong><span>що популярне англійською й російською, але немає українською</span></div></li>
+        <li><span class="step-n">4</span><div><strong>Оцінка ідей</strong><span>попит, конкуренція, свіжість — з цифрами й відео-доказами</span></div></li>
+        <li><span class="step-n">5</span><div><strong>План відео</strong><span>структура сценарію, назва, опис і теги українською з перевіркою</span></div></li>
+      </ol>
+    </section>
+
+    <div class="studio-layout">
+      <aside class="card studio-list" aria-label="Звіти агента">
+        <div class="card-header"><h2>Звіти агента</h2></div>
+        <p class="card-sub">Справжні запуски агента на датасеті з ~1 900 ігрових відео.</p>
+        <ul id="report-list" class="report-list"><li class="muted">Завантаження…</li></ul>
+      </aside>
+
+      <article class="card studio-report" aria-live="polite">
+        <div id="report-meta" class="report-meta"></div>
+        <div id="report-body" class="report-body"><p class="muted">Оберіть звіт ліворуч.</p></div>
+      </article>
+    </div>
+  </main>
+
+  <script src="/creators/assets/studio.js"></script>
+</body>
+</html>

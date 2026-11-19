@@ -1,0 +1,50 @@
+/* Сторінка «Студія ідей». Кольори й шрифти — зі styles.css сайту для авторів. */
+.studio-how { padding: 18px 20px; }
+.studio-steps { list-style: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+.studio-steps li { display: flex; gap: 10px; align-items: flex-start; }
+.studio-steps strong { display: block; font-size: 14px; }
+.studio-steps span { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.step-n {
+  flex: none; width: 26px; height: 26px; border-radius: 8px; display: grid !important; place-items: center;
+  background: rgba(59, 130, 246, 0.16); color: #93c5fd !important; font-weight: 700; font-size: 13px !important;
+}
+
+.studio-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 18px; align-items: start; }
+.studio-list { position: sticky; top: 92px; max-height: calc(100vh - 110px); overflow: auto; }
+.report-list { list-style: none; display: grid; gap: 8px; margin-top: 12px; }
+.report-list button {
+  width: 100%; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+}
+.report-list button:hover { border-color: rgba(59, 130, 246, 0.45); }
+.report-list button[aria-current="true"] { border-color: var(--primary); background: rgba(59, 130, 246, 0.12); }
+.report-list .r-idea { display: block; font-size: 13.5px; font-weight: 600; }
+.report-list .r-meta { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+.muted { color: var(--muted); }
+
+.studio-report { padding: 22px 26px; min-width: 0; }
+.report-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.report-meta .badge { font-size: 12px; }
+
+.report-body { font-size: 14.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.report-body h2 { font-size: 18px; margin: 26px 0 10px; padding-top: 14px; border-top: 1px solid var(--border); }
+.report-body h2:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.report-body h3 { font-size: 15px; margin: 18px 0 8px; }
+.report-body p { margin: 8px 0; }
+.report-body ul, .report-body ol { margin: 8px 0 8px 22px; }
+.report-body li { margin: 4px 0; }
+.report-body a { color: #93c5fd; }
+.report-body strong { color: #fff; }
+.report-body code { background: var(--surface-2); padding: 1px 6px; border-radius: 6px; font-size: 13px; }
+.report-body blockquote { border-left: 3px solid var(--accent); padding: 4px 14px; color: #cbd5e1; margin: 10px 0; }
+.report-body hr { border: 0; border-top: 1px solid var(--border); margin: 22px 0; }
+.report-body .table-wrap { overflow-x: auto; margin: 12px 0; }
+.report-body table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+.report-body th, .report-body td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+.report-body th { background: var(--surface-2); }
+
+@media (max-width: 980px) {
+  .studio-steps { grid-template-columns: 1fr 1fr; }
+  .studio-layout { grid-template-columns: 1fr; }
+  .studio-list { position: static; max-height: none; }
+}

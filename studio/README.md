@@ -109,6 +109,15 @@ backend\.venv\Scripts\python -m studio.agent.run "Хочу знімати Minecr
 
 Агент друкує кожен виклик інструмента і результат, а звіт зберігає в `studio/data/reports/`. Без браузера: `--no-browser`.
 
+**Публікація звіту на сайт.** Звіт можна показати на сайті для авторів (сторінка `/creators/studio`):
+
+```powershell
+backend\.venv\Scripts\python studio\publish_report.py          # останній звіт
+backend\.venv\Scripts\python studio\publish_report.py --all    # усі звіти з data/reports
+```
+
+Скрипт записує звіт у таблицю `studio_reports` у Supabase; сервер на Railway віддає його сторінці. Повторна публікація того самого файла оновлює запис.
+
 **Обмеження браузера** (`agent/tools.py`): моделі доступні лише `browser_navigate` і `browser_snapshot`; адреси поза
 `ALLOWED_HOSTS` відхиляються з помилкою `BLOCKED_URL` ще до звернення до Playwright; знімок сторінки обрізається до 12 000
 символів. Якщо Playwright MCP не запущений, агент працює далі лише з датасетом і пише про це у звіті.

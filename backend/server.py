@@ -88,6 +88,17 @@ SCHEMA = [
         processed_at timestamptz
     )""",
     "create index if not exists wishes_install_idx on wishes (install_id, created_at)",
+    # Звіти агента Студії: публікуються з ноутбука скриптом studio/publish_report.py, показуються на /creators/studio.
+    """create table if not exists studio_reports (
+        id bigserial primary key,
+        created_at timestamptz not null default now(),
+        source_file text unique not null,
+        creator text,
+        idea text not null,
+        game text,
+        model text,
+        report_md text not null
+    )""",
     """create table if not exists events (
         id bigserial primary key,
         install_id text not null,
@@ -752,6 +763,42 @@ def creators_dashboard():
     if not os.path.isfile(index_path):
         raise HTTPException(404, "Веб-інтерфейс для авторів не знайдено")
     return FileResponse(index_path)
+
+
+@app.get("/creators/studio", include_in_schema=False)
+def creators_studio():
+    path = os.path.join(CREATORS_DIR, "studio.html")
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Сторінку Студії не знайдено")
+    return FileResponse(path)
+
+
+@app.get("/api/studio/reports")
+def studio_reports(limit: int = Query(20, ge=1, le=100)):
+    """Список опублікованих звітів агента Студії (без тексту звіту)."""
+    with db() as conn:
+        rows = conn.execute(
+            """select id, created_at, creator, idea, game, model from studio_reports
+               order by created_at desc limit %s""",
+            (limit,),
+        ).fetchall()
+    return {"reports": [
+        {"id": r[0], "created_at": r[1].isoformat(), "creator": r[2], "idea": r[3], "game": r[4], "model": r[5]}
+        for r in rows
+    ]}
+
+
+@app.get("/api/studio/reports/{report_id}")
+def studio_report(report_id: int):
+    with db() as conn:
+        r = conn.execute(
+            "select id, created_at, creator, idea, game, model, report_md from studio_reports where id = %s",
+            (report_id,),
+        ).fetchone()
+    if not r:
+        raise HTTPException(404, "Звіт не знайдено")
+    return {"id": r[0], "created_at": r[1].isoformat(), "creator": r[2], "idea": r[3], "game": r[4],
+            "model": r[5], "report_md": r[6]}
 
 
 @app.get("/api/creators/overview")
