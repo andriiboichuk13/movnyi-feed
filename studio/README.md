@@ -101,7 +101,7 @@ STUDIO_MODEL=<id моделі з openrouter.ai/models, яка підтримує
 backend\.venv\Scripts\python -m studio.mcp_server.server
 
 # 2. Playwright MCP (відкриє окреме вікно браузера)
-npx @playwright/mcp@latest --port 8931 --isolated
+npx @playwright/mcp@latest --port 8931 --host 127.0.0.1 --isolated
 
 # 3. Агент
 backend\.venv\Scripts\python -m studio.agent.run "Хочу знімати Minecraft, люблю будувати міста" --creator andrii

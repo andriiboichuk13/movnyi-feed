@@ -12,7 +12,8 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 
 # Дозволені сторінки трендів (погоджуються з викладачем). Усе інше браузер не відкриє.
-ALLOWED_HOSTS = {"modrinth.com", "www.modrinth.com", "www.roblox.com", "roblox.com", "store.steampowered.com"}
+ALLOWED_HOSTS = {"modrinth.com", "www.modrinth.com", "www.roblox.com", "roblox.com", "store.steampowered.com",
+                 "www.minecraft.net", "minecraft.net"}
 # Які інструменти Playwright бачить модель: лише читання сторінок, без кліків, форм і вкладок.
 PLAYWRIGHT_TOOLS = {"browser_navigate", "browser_snapshot"}
 # Знімок сторінки буває на сотні тисяч символів; моделі вистачає початку.
@@ -88,6 +89,8 @@ async def connect(studio_url: str, playwright_url: str | None):
                 status["playwright"] = f"підключено, інструменти: {', '.join(t.name for t in pw)}"
             except Exception as e:
                 status["playwright"] = f"НЕДОСТУПНИЙ ({type(e).__name__}): свіжих трендів з браузера не буде"
+                print(f"Playwright MCP недоступний за адресою {playwright_url}. Запустіть в окремому вікні: "
+                      "npx @playwright/mcp@latest --port 8931 --host 127.0.0.1 --isolated")
         else:
             status["playwright"] = "вимкнено параметром --no-browser"
         yield tools, status

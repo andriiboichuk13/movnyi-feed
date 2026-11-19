@@ -2,7 +2,7 @@
 
 Перед запуском мають працювати (кожен в окремому вікні, з кореня репозиторію):
     backend\\.venv\\Scripts\\python -m studio.mcp_server.server          # Студія, порт 8100
-    npx @playwright/mcp@latest --port 8931 --isolated                   # Playwright MCP, порт 8931
+    npx @playwright/mcp@latest --port 8931 --host 127.0.0.1 --isolated                   # Playwright MCP, порт 8931
 
 Запуск агента:
     backend\\.venv\\Scripts\\python -m studio.agent.run "Хочу знімати Minecraft, люблю будувати міста" --creator andrii

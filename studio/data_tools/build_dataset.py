@@ -106,7 +106,8 @@ def build_records(merged, games):
 
         title, tags = sn.get("title", ""), sn.get("tags") or []
         description = C.clean_description(sn.get("description", ""), limit=500)
-        game = match_game(f"{title} {' '.join(tags)} {description[:300]}")
+        # Назва важить найбільше: канал про Minecraft може згадувати його в описі навіть у відео про Roblox.
+        game = match_game(title) or match_game(f"{' '.join(tags)} {description[:300]}")
         if not game and e["search_games"]:
             game = e["search_games"].most_common(1)[0][0]  # відео знайдено пошуком саме цієї гри
         if not game:
