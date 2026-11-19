@@ -1,4 +1,4 @@
-# PyTorch лише для процесора: версія для відеокарт важить кілька ГБ і на Railway не потрібна.
+# CPU-only PyTorch: the GPU build is several GB and is not needed on Railway.
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
 requests>=2.31

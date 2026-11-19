@@ -1,0 +1,5 @@
+# Studio runs in the backend virtualenv (backend/.venv), which already has numpy,
+# sentence-transformers, scikit-learn and psycopg. Only the missing packages are listed here.
+# The MCP server is built on FastMCP; the major version is pinned so an update cannot break the API.
+fastmcp>=4.2,<5
+pytest>=8
