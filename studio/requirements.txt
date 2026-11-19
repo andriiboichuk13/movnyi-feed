@@ -1,5 +1,9 @@
 # Studio runs in the backend virtualenv (backend/.venv), which already has numpy,
 # sentence-transformers, scikit-learn and psycopg. Only the missing packages are listed here.
-# The MCP server is built on FastMCP; the major version is pinned so an update cannot break the API.
-fastmcp>=4.2,<5
+# fastmcp 3.x: fastmcp 4.x needs MCP SDK 2.x, while langchain-mcp-adapters still needs MCP SDK 1.x.
+fastmcp>=3.2,<4
+langchain>=1.5,<2
+langchain-openai>=1.8,<2
+langgraph>=1.2,<2
+langchain-mcp-adapters>=0.3,<0.4
 pytest>=8

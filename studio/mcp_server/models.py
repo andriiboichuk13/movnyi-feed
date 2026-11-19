@@ -34,6 +34,8 @@ class NicheCoverage(BaseModel):
     window_days: int
     as_of: str = Field(description="Дата датасету, від якої відраховується період")
     min_similarity: Optional[float]
+    margin: Optional[float]
+    thresholds: Optional[Dict[Lang, float]] = Field(description="Фактичний поріг схожості для кожної мови: max(min_similarity, медіана мови + margin)")
     by_lang: Dict[Lang, LangStats]
     uk_to_foreign_ratio: Optional[float] = Field(description="Українських відео на одне іноземне (ru+en); null, якщо іноземних немає")
     verdict: Literal["underserved", "competitive", "saturated", "insufficient_data"]
@@ -82,6 +84,8 @@ class IdeaScore(BaseModel):
     window_days: int
     as_of: str
     min_similarity: float
+    margin: float
+    thresholds: Dict[Literal["foreign", "uk"], float] = Field(description="Фактичні пороги схожості: для іноземних і для українських відео окремо")
     components: List[ScoreComponent]
     verdict: Literal["strong_opportunity", "worth_trying", "moderate", "crowded", "weak_demand"]
     verdict_rule: str

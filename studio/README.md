@@ -10,7 +10,7 @@
 | `data_tools/` | скрипти збору датасету |
 | `data/` | датасет (не комітиться, див. `.gitignore`) |
 | `mcp_server/` | власний MCP-сервер з інструментами над датасетом |
-| `agent/` | агент на LangGraph (наступний крок) |
+| `agent/` | агент (LangChain `create_agent` на LangGraph), підключений до обох MCP-серверів |
 
 ## Крок 1. Датасет
 
@@ -80,6 +80,38 @@ backend\.venv\Scripts\python -m pytest studio\tests -q
 | `get_dataset_info` | допоміжний: ігри й кількість відео в датасеті |
 
 Усі пороги й правила — у `mcp_server/rules.py`. Помилки повертаються як помилки інструмента (`isError`) з кодом на початку (`DATASET_UNAVAILABLE`, `UNKNOWN_EVIDENCE`, `EVIDENCE_GAME_MISMATCH`; невалідні аргументи відхиляє схема). Порожній список у результаті означає «нічого не знайдено» і помилкою не є. Часові вікна відраховуються від дати збирання датасету, тож результати однакові на кожному запуску.
+
+## Крок 3. Агент
+
+Агент — LangChain `create_agent` (граф LangGraph) з моделлю через OpenRouter. Він підключається до двох MCP-серверів:
+нашої Студії і [Playwright MCP](https://github.com/microsoft/playwright-mcp) (свіжі тренди з modrinth.com, roblox.com/charts,
+store.steampowered.com/charts). Порядок роботи й правила — у `agent/prompts.py`.
+
+**Налаштування** (один раз): у `backend/.env` додати
+
+```
+OPENROUTER_API_KEY=...
+STUDIO_MODEL=<id моделі з openrouter.ai/models, яка підтримує tools>
+```
+
+**Запуск** — три вікна PowerShell, усі з кореня репозиторію:
+
+```powershell
+# 1. Студія
+backend\.venv\Scripts\python -m studio.mcp_server.server
+
+# 2. Playwright MCP (відкриє окреме вікно браузера)
+npx @playwright/mcp@latest --port 8931 --isolated
+
+# 3. Агент
+backend\.venv\Scripts\python -m studio.agent.run "Хочу знімати Minecraft, люблю будувати міста" --creator andrii
+```
+
+Агент друкує кожен виклик інструмента і результат, а звіт зберігає в `studio/data/reports/`. Без браузера: `--no-browser`.
+
+**Обмеження браузера** (`agent/tools.py`): моделі доступні лише `browser_navigate` і `browser_snapshot`; адреси поза
+`ALLOWED_HOSTS` відхиляються з помилкою `BLOCKED_URL` ще до звернення до Playwright; знімок сторінки обрізається до 12 000
+символів. Якщо Playwright MCP не запущений, агент працює далі лише з датасетом і пише про це у звіті.
 
 ### Обмеження
 

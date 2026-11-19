@@ -117,3 +117,14 @@ def test_plan_saved_once_and_evidence_checked(client):
 def test_single_creator_subtopics_skipped(client):
     r = call(client, "find_content_gaps", {"game": "minecraft", "min_channels": 3}).structured_content
     assert r["gaps"] == [] and r["small_subtopics_skipped"] >= 1
+
+
+def test_relative_threshold_compensates_language_bias():
+    from studio.mcp_server import rules as R
+
+    # Україномовна ідея: усі українські відео «схожі» на неї ≈0.86 лише через мову, два справді про тему.
+    biased = np.array([0.86] * 20 + [0.93, 0.94])
+    thr = R.topic_threshold(biased, R.TOPIC_MIN_SIMILARITY, R.TOPIC_MARGIN)
+    assert (biased >= thr).sum() == 2
+    # Мало відео — медіані не віримо, лишається нижня межа.
+    assert R.topic_threshold(np.array([0.9, 0.95]), 0.80, 0.03) == 0.80

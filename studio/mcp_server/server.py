@@ -90,7 +90,9 @@ def _lang_stats(d: Dataset, rows, sims=None) -> LangStats:
         "Порівнює, скільки відео про гру (або про тему в межах гри) є українською, російською й англійською "
         "за однаковий період, і робить висновок, чи ніша недопокрита українською. Використовуй першим, "
         "щоб зрозуміти загальну ситуацію в грі чи темі. topic — коротка тема довільною мовою "
-        "(напр. «виживання 100 днів»); без topic аналізується вся гра."
+        "(напр. «виживання 100 днів»); без topic аналізується вся гра. Відео рахується «про тему», якщо його "
+        "схожість перевищує медіану схожості відео тієї ж мови на margin (компенсує те, що тексти однією мовою "
+        "здаються моделі ближчими)."
     ),
     annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False),
 )
@@ -98,17 +100,24 @@ def analyze_niche_coverage(
     game: Annotated[Game, Field(description="Гра з датасету")],
     topic: Annotated[Optional[str], Field(min_length=2, max_length=120, description="Тема в межах гри; не вказано — вся гра")] = None,
     window_days: Annotated[int, Field(ge=30, le=365, description="Період у днях до дати датасету")] = 180,
-    min_similarity: Annotated[float, Field(ge=0.75, le=0.95, description="Поріг схожості відео з темою")] = R.TOPIC_MIN_SIMILARITY,
+    min_similarity: Annotated[float, Field(ge=0.70, le=0.95, description="Нижня межа схожості відео з темою")] = R.TOPIC_MIN_SIMILARITY,
+    margin: Annotated[float, Field(ge=0.0, le=0.10, description="На скільки схожість має перевищувати медіану відео тієї ж мови")] = R.TOPIC_MARGIN,
 ) -> NicheCoverage:
     d = ds()
     game = game.value
     rows = d.rows(game, window_days=window_days)
-    sims = None
+    sims, thresholds = None, None
     if topic:
         qf, qt = d.embed_query(topic)
         s = d.query_similarity(qf, qt, rows)
         sims = dict(zip(rows.tolist(), s.tolist()))
-        rows = rows[s >= min_similarity]
+        keep = np.zeros(len(rows), dtype=bool)
+        thresholds = {}
+        for lang in ("uk", "ru", "en"):
+            m = d.lang[rows] == lang
+            thresholds[lang] = round(R.topic_threshold(s[m], min_similarity, margin), 3)
+            keep |= m & (s >= thresholds[lang])
+        rows = rows[keep]
 
     by_lang = {lang: _lang_stats(d, rows[d.lang[rows] == lang], sims) for lang in ("uk", "ru", "en")}
     uk, foreign = by_lang["uk"].videos, by_lang["ru"].videos + by_lang["en"].videos
@@ -119,6 +128,8 @@ def analyze_niche_coverage(
         window_days=window_days,
         as_of=d.as_of.date().isoformat(),
         min_similarity=min_similarity if topic else None,
+        margin=margin if topic else None,
+        thresholds=thresholds,
         by_lang=by_lang,
         uk_to_foreign_ratio=round(uk / foreign, 3) if foreign else None,
         verdict=verdict,
@@ -220,7 +231,8 @@ def find_content_gaps(
     description=(
         "Оцінює конкретну ідею відео для гри за трьома складовими з явними правилами: попит (перегляди схожих "
         "іноземних відео за період), конкуренція (кількість схожих українських відео) і свіжість (частка схожих "
-        "іноземних відео за останні 30 днів). Повертає рівні, числа, правило висновку й відео-докази. "
+        "іноземних відео за останні 30 днів). Схожість рахується відносно медіани відео тієї ж мови, тож мова, "
+        "якою написана ідея, майже не впливає на результат. Повертає рівні, числа, правило висновку й відео-докази. "
         "Використовуй, щоб порівняти кілька ідей або перевірити ідею креатора."
     ),
     annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False),
@@ -229,19 +241,29 @@ def score_video_idea(
     game: Annotated[Game, Field(description="Гра з датасету")],
     idea: Annotated[str, Field(min_length=10, max_length=300, description="Ідея відео одним-двома реченнями, будь-якою мовою")],
     window_days: Annotated[int, Field(ge=30, le=365, description="Період для попиту й свіжості")] = 180,
-    min_similarity: Annotated[float, Field(ge=0.75, le=0.95, description="Поріг схожості відео з ідеєю")] = R.TOPIC_MIN_SIMILARITY,
+    min_similarity: Annotated[float, Field(ge=0.70, le=0.95, description="Нижня межа схожості відео з ідеєю")] = R.TOPIC_MIN_SIMILARITY,
+    margin: Annotated[float, Field(ge=0.0, le=0.10, description="На скільки схожість має перевищувати медіану відео тієї ж мови")] = R.TOPIC_MARGIN,
 ) -> IdeaScore:
     d = ds()
     game = game.value
     qf, qt = d.embed_query(idea)
 
+    # Іноземні: поріг окремо для ru і en (кожна мова зі своєю медіаною), потім об'єднуємо.
     foreign = d.rows(game, langs=("ru", "en"), window_days=window_days)
     f_sim = d.query_similarity(qf, qt, foreign)
-    f_rows, f_sims = foreign[f_sim >= min_similarity], f_sim[f_sim >= min_similarity]
+    f_keep = np.zeros(len(foreign), dtype=bool)
+    f_thr = []
+    for lang in ("ru", "en"):
+        m = d.lang[foreign] == lang
+        thr = R.topic_threshold(f_sim[m], min_similarity, margin)
+        f_thr.append(thr)
+        f_keep |= m & (f_sim >= thr)
+    f_rows, f_sims = foreign[f_keep], f_sim[f_keep]
 
     uk = d.rows(game, langs=("uk",))
     u_sim = d.query_similarity(qf, qt, uk)
-    u_rows, u_sims = uk[u_sim >= min_similarity], u_sim[u_sim >= min_similarity]
+    u_thr = R.topic_threshold(u_sim, min_similarity, margin)
+    u_rows, u_sims = uk[u_sim >= u_thr], u_sim[u_sim >= u_thr]
 
     total_views = int(d.views[f_rows].sum()) if len(f_rows) else 0
     fresh_share = float((d.age_days(f_rows) <= R.FRESH_DAYS).mean()) if len(f_rows) else 0.0
@@ -256,6 +278,7 @@ def score_video_idea(
 
     return IdeaScore(
         game=game, idea=idea, window_days=window_days, as_of=d.as_of.date().isoformat(), min_similarity=min_similarity,
+        margin=margin, thresholds={"foreign": round(max(f_thr), 3), "uk": round(u_thr, 3)},
         components=[
             ScoreComponent(name="demand", level=demand, value=total_views,
                            explanation=f"{len(f_rows)} схожих іноземних відео за {window_days} днів, разом {total_views:,} переглядів "
@@ -447,7 +470,9 @@ def main():
     try:
         if args.transport == "http":
             print(f"MCP-сервер: http://{args.host}:{args.port}/mcp (зупинити: Ctrl+C)", file=sys.stderr)
-            mcp.run(transport="http", host=args.host, port=args.port, show_banner=False)
+            # stateless_http: інструментам Студії сесія не потрібна (кожен виклик незалежний), а без неї
+            # сервер не тримає фонові SSE-потоки, які MCP SDK 1.x шумно закриває після кожного клієнта.
+            mcp.run(transport="http", host=args.host, port=args.port, show_banner=False, stateless_http=True)
         else:
             mcp.run(transport="stdio", show_banner=False)
     except KeyboardInterrupt:
