@@ -444,11 +444,14 @@ def main():
         # Сервер однаково стартує, а інструменти повертають DATASET_UNAVAILABLE: так збій видно клієнту.
         print(f"УВАГА: {e}", file=sys.stderr)
 
-    if args.transport == "http":
-        print(f"MCP-сервер: http://{args.host}:{args.port}/mcp", file=sys.stderr)
-        mcp.run(transport="http", host=args.host, port=args.port, show_banner=False)
-    else:
-        mcp.run(transport="stdio", show_banner=False)
+    try:
+        if args.transport == "http":
+            print(f"MCP-сервер: http://{args.host}:{args.port}/mcp (зупинити: Ctrl+C)", file=sys.stderr)
+            mcp.run(transport="http", host=args.host, port=args.port, show_banner=False)
+        else:
+            mcp.run(transport="stdio", show_banner=False)
+    except KeyboardInterrupt:
+        print("MCP-сервер зупинено.", file=sys.stderr)
 
 
 if __name__ == "__main__":

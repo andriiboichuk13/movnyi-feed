@@ -1,4 +1,3 @@
-# Дані YouTube не кладемо в публічний репозиторій (правила YouTube API про зберігання й поширення).
-# Датасет збирається скриптами з data_tools/ або передається викладачу окремим архівом.
-data/raw/
-data/dataset/
+# YouTube data is not committed to the public repository (YouTube API storage and distribution rules).
+# Raw API responses, the dataset, check results and creators' content plans all live here.
+data/
