@@ -1,7 +1,7 @@
 const API_OVERVIEW = "/api/creators/overview";
 
 const charts = {};
-let activeTokenFilter = "";
+let activeSubjectFilter = "";
 let debounceTimer = null;
 
 const el = (id) => document.getElementById(id);
@@ -28,7 +28,7 @@ function buildQueryParams() {
   const days = el("filter-days").value;
   const topicId = el("filter-topic").value;
   const level = el("filter-level").value;
-  const q = el("filter-query").value.trim() || activeTokenFilter;
+  const q = el("filter-query").value.trim() || activeSubjectFilter;
 
   if (days) params.set("days", days);
   if (topicId) params.set("topic_id", topicId);
@@ -44,12 +44,12 @@ async function fetchOverview() {
     const res = await fetch(qs ? `${API_OVERVIEW}?${qs}` : API_OVERVIEW);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    pill.textContent = "Supabase підключено";
+    pill.textContent = "Дані актуальні";
     pill.classList.remove("error");
     renderAll(data);
   } catch (err) {
     console.error(err);
-    pill.textContent = "Помилка з'єднання";
+    pill.textContent = "Немає зв'язку";
     pill.classList.add("error");
     showToast("Не вдалося завантажити аналітику з сервера.");
   }
@@ -66,15 +66,21 @@ function renderTopicSelect(availableTopics) {
   if (current) select.value = current;
 }
 
-function renderKpis(summary) {
-  el("kpi-total").textContent = summary.total_wishes ?? 0;
-  el("kpi-processed").textContent = `Оброблено моделлю: ${summary.processed_wishes ?? 0}`;
+function renderKpis(summary, topics) {
+  const total = summary.total_wishes ?? 0;
+  const unmet = summary.unmet_demand ?? 0;
+  const unmetPct = total > 0 ? Math.round((unmet / total) * 100) : 0;
+
+  el("kpi-total").textContent = total;
+  el("kpi-with-text").textContent = `З детальним коментарем: ${summary.with_user_text ?? 0}`;
   el("kpi-installs").textContent = summary.unique_installs ?? 0;
-  el("kpi-with-text").textContent = `Із текстовим коментарем: ${summary.with_user_text ?? 0}`;
-  el("kpi-unmet").textContent = summary.unmet_demand ?? 0;
+  el("kpi-unmet").textContent = unmet;
+  el("kpi-unmet-share").textContent = `${unmetPct}% без української альтернативи`;
   el("kpi-top-topic").textContent = summary.top_topic || "Недостатньо даних";
-  const confPct = Math.round((summary.avg_confidence || 0) * 100);
-  el("kpi-confidence").textContent = `Середня впевненість: ${confPct}%`;
+  const topTopicObj = (topics || [])[0];
+  el("kpi-top-share").textContent = topTopicObj
+    ? `${topTopicObj.share}% від усіх запитів · дефіцит ${topTopicObj.unmet_rate}%`
+    : "Найвищий попит аудиторії";
 }
 
 function renderChart(key, canvasId, config) {
@@ -114,7 +120,7 @@ function renderCharts(data) {
           borderRadius: 6,
         },
         {
-          label: "Без точної альтернативи",
+          label: "Бракує укр. відео",
           data: topics.map((t) => t.unmet_count),
           backgroundColor: "rgba(245, 158, 11, 0.78)",
           borderRadius: 6,
@@ -137,7 +143,7 @@ function renderCharts(data) {
       labels: timeline.map((d) => d.date),
       datasets: [
         {
-          label: "Запити за день",
+          label: "Усі запити",
           data: timeline.map((d) => d.count),
           borderColor: "#3b82f6",
           backgroundColor: "rgba(59, 130, 246, 0.16)",
@@ -145,7 +151,7 @@ function renderCharts(data) {
           tension: 0.3,
         },
         {
-          label: "Незакритий попит",
+          label: "Дефіцит укр. контенту",
           data: timeline.map((d) => d.unmet_count),
           borderColor: "#f59e0b",
           backgroundColor: "rgba(245, 158, 11, 0.12)",
@@ -191,7 +197,7 @@ function renderCharts(data) {
       datasets: [
         {
           data: levels.map((l) => l.count),
-          backgroundColor: ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#64748b"],
+          backgroundColor: ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"],
           borderWidth: 0,
         },
       ],
@@ -205,70 +211,93 @@ function renderCharts(data) {
   });
 }
 
-function renderClusters(clusters) {
-  el("clusters-count").textContent = `${clusters.length} груп`;
-  const container = el("clusters-list");
-  if (!clusters.length) {
-    container.innerHTML = '<div class="empty-state">Поки немає записів для групування.</div>';
+function renderTopicsDeepDive(topics) {
+  el("topics-count").textContent = `${topics.length} тем`;
+  const container = el("topics-deep-grid");
+  if (!topics.length) {
+    container.innerHTML = '<div class="empty-state">За обраними фільтрами тем не знайдено.</div>';
     return;
   }
 
-  container.innerHTML = clusters
-    .map((c) => {
-      const samplesHtml = (c.sample_wishes || [])
-        .map((w) => {
-          const title = escapeHtml(w.video_title || w.video_id);
-          const url = `https://www.youtube.com/watch?v=${encodeURIComponent(w.video_id)}`;
-          return `<div>• <a href="${url}" target="_blank" rel="noopener">${title}</a></div>`;
+  container.innerHTML = topics
+    .map((t) => {
+      const subtopicsHtml = (t.subtopics || [])
+        .map((s) => `<span class="subtopic-pill">${escapeHtml(s.name)} · <strong>${s.count}</strong> (${s.share}%)</span>`)
+        .join("");
+
+      const subjectsHtml = (t.key_subjects || [])
+        .map((s) => {
+          const isActive = activeSubjectFilter.toLowerCase() === s.name.toLowerCase();
+          return `<button type="button" class="subject-chip ${isActive ? "active" : ""}" data-subject="${escapeHtml(s.name)}">${escapeHtml(s.name)} ×${s.count}</button>`;
+        })
+        .join("");
+
+      const sentimentsHtml = (t.sentiments || [])
+        .map((s) => `<span class="pill-sentiment">${escapeHtml(s.label)}: ${s.share}%</span>`)
+        .join("");
+
+      const narrativesHtml = (t.narratives || [])
+        .map((n) => {
+          const videosHtml = (n.sample_videos || [])
+            .map((v) => {
+              const url = `https://www.youtube.com/watch?v=${encodeURIComponent(v.video_id)}`;
+              return `<div>• <a href="${url}" target="_blank" rel="noopener">${escapeHtml(v.video_title || v.video_id)}</a></div>`;
+            })
+            .join("");
+
+          return `
+            <div class="narrative-box">
+              <div class="narrative-head">
+                <span class="narrative-title">${escapeHtml(n.title)}</span>
+                <span class="badge">${n.demand} запит(ів) · дефіцит ${n.unmet_rate}%</span>
+              </div>
+              <div class="narrative-meta">Намір: ${escapeHtml(n.viewer_intent)}</div>
+              <div class="narrative-videos">${videosHtml}</div>
+            </div>
+          `;
         })
         .join("");
 
       return `
-        <div class="cluster-item">
-          <div class="cluster-top">
-            <span class="cluster-title">${escapeHtml(c.label)}</span>
-            <div class="cluster-stats">
-              <span class="badge">${c.count} запит(ів)</span>
-              <span class="badge">${Math.round((c.avg_confidence || 0) * 100)}%</span>
+        <article class="topic-deep-card">
+          <div class="topic-deep-head">
+            <div>
+              <div class="topic-deep-title">${escapeHtml(t.name)}</div>
+              <div class="topic-deep-metrics">
+                <span>Запитів: <strong>${t.count}</strong> (${t.share}%)</span>
+                <span>Глядачів: <strong>${t.unique_viewers ?? 0}</strong></span>
+              </div>
+            </div>
+            <div class="pill-row">
+              <span class="badge badge-opportunity">Можливість: ${t.opportunity_score ?? 0}/100</span>
+              <span class="badge badge-deficit">Дефіцит: ${t.unmet_rate ?? 0}%</span>
             </div>
           </div>
-          <div class="cluster-samples">${samplesHtml}</div>
-        </div>
-      `;
-    })
-    .join("");
-}
 
-function renderTokens(tokens) {
-  const container = el("tokens-cloud");
-  if (!tokens.length) {
-    container.innerHTML = '<div class="empty-state">Токени не знайдено.</div>';
-    return;
-  }
+          ${subtopicsHtml ? `<div><div class="topic-section-label">Підтеми</div><div class="pill-row">${subtopicsHtml}</div></div>` : ""}
 
-  container.innerHTML = tokens
-    .map((t) => {
-      const isActive = activeTokenFilter.toLowerCase() === t.token.toLowerCase();
-      const group = escapeHtml(t.entity_group || "KEY");
-      return `
-        <button type="button" class="token-chip ${isActive ? "active" : ""}" data-token="${escapeHtml(t.token)}">
-          <span class="tok-badge tok-${group}">${group}</span>
-          <span>${escapeHtml(t.token)}</span>
-          <span class="tok-count">×${t.count}</span>
-        </button>
+          ${subjectsHtml ? `<div><div class="topic-section-label">Що саме шукають у цій темі</div><div class="pill-row">${subjectsHtml}</div></div>` : ""}
+
+          ${sentimentsHtml ? `<div><div class="topic-section-label">Реакція глядачів</div><div class="pill-row">${sentimentsHtml}</div></div>` : ""}
+
+          <div>
+            <div class="topic-section-label">Наративи та ідеї для відео</div>
+            <div class="narratives-list">${narrativesHtml || '<div class="sub-text">Недостатньо даних</div>'}</div>
+          </div>
+        </article>
       `;
     })
     .join("");
 
-  container.querySelectorAll(".token-chip").forEach((btn) => {
+  container.querySelectorAll(".subject-chip").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const token = btn.dataset.token || "";
-      if (activeTokenFilter.toLowerCase() === token.toLowerCase()) {
-        activeTokenFilter = "";
+      const subj = btn.dataset.subject || "";
+      if (activeSubjectFilter.toLowerCase() === subj.toLowerCase()) {
+        activeSubjectFilter = "";
         el("filter-query").value = "";
       } else {
-        activeTokenFilter = token;
-        el("filter-query").value = token;
+        activeSubjectFilter = subj;
+        el("filter-query").value = subj;
       }
       fetchOverview();
     });
@@ -279,44 +308,36 @@ function renderWishesTable(wishes) {
   el("wishes-count").textContent = `${wishes.length} записів`;
   const tbody = el("wishes-tbody");
   if (!wishes.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Записів за обраними фільтрами не знайдено.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Записів за обраними фільтрами не знайдено.</td></tr>';
     return;
   }
 
   tbody.innerHTML = wishes
     .map((w) => {
-      const dateStr = w.created_at ? new Date(w.created_at).toLocaleString("uk-UA", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }) : "—";
+      const dateStr = w.created_at
+        ? new Date(w.created_at).toLocaleString("uk-UA", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "—";
       const url = `https://www.youtube.com/watch?v=${encodeURIComponent(w.video_id)}`;
-      const title = escapeHtml(w.video_title || w.video_id);
-      const userTextStatus = w.has_user_text
-        ? '<span class="pill-sentiment">Із коментарем</span>'
-        : '<span class="sub-text">без тексту</span>';
-      const confPct = Math.round((w.topic_confidence || 0) * 100);
-      const tokensHtml = (w.tokens || [])
-        .map((tok) => `<span class="tok-badge tok-${escapeHtml(tok.entity_group)}">${escapeHtml(tok.token)}</span>`)
-        .join("");
+      const title = escapeHtml(w.video_title || "Відео без назви");
 
       return `
         <tr>
           <td>${escapeHtml(dateStr)}</td>
           <td>
             <a class="video-link" href="${url}" target="_blank" rel="noopener">${title}</a>
-            <div class="sub-text">${escapeHtml(w.video_id)}</div>
           </td>
-          <td>${userTextStatus}</td>
           <td>
             <div><strong>${escapeHtml(w.topic_name || "—")}</strong></div>
-            <div class="sub-text">${escapeHtml(w.subtopic_name || "")} · ${confPct}%</div>
+            <div class="sub-text">${escapeHtml(w.subtopic_name || "")}</div>
           </td>
-          <td><div class="inline-tokens">${tokensHtml || '<span class="sub-text">—</span>'}</div></td>
           <td><span class="pill-sentiment">${escapeHtml(w.sentiment || "—")}</span></td>
-          <td>${w.level_reached ?? "—"}</td>
+          <td><span class="sub-text">${escapeHtml(w.level_label || "—")}</span></td>
         </tr>
       `;
     })
@@ -332,16 +353,15 @@ function renderSearchSuggestion(suggestion) {
   }
   const simPct = Math.round((suggestion.similarity || 0) * 100);
   banner.hidden = false;
-  banner.innerHTML = `Точних збігів за запитом «<strong>${escapeHtml(suggestion.query)}</strong>» не знайдено. Показано найближчу за назвою тему: <strong>${escapeHtml(suggestion.matched_topic_name)}</strong> (синтаксична схожість: ${simPct}%).`;
+  banner.innerHTML = `Точних збігів за запитом «<strong>${escapeHtml(suggestion.query)}</strong>» не знайдено. Показано найближчу за назвою тему: <strong>${escapeHtml(suggestion.matched_topic_name)}</strong> (схожість: ${simPct}%).`;
 }
 
 function renderAll(data) {
   renderSearchSuggestion(data.search_suggestion || null);
   renderTopicSelect(data.available_topics || []);
-  renderKpis(data.summary || {});
+  renderKpis(data.summary || {}, data.topics || []);
   renderCharts(data);
-  renderClusters(data.clusters || []);
-  renderTokens(data.tokens || []);
+  renderTopicsDeepDive(data.topics || []);
   renderWishesTable(data.wishes || []);
 }
 
@@ -349,7 +369,7 @@ el("filter-days").addEventListener("change", fetchOverview);
 el("filter-topic").addEventListener("change", fetchOverview);
 el("filter-level").addEventListener("change", fetchOverview);
 el("filter-query").addEventListener("input", () => {
-  activeTokenFilter = "";
+  activeSubjectFilter = "";
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(fetchOverview, 260);
 });
@@ -358,7 +378,7 @@ el("btn-reset").addEventListener("click", () => {
   el("filter-topic").value = "";
   el("filter-level").value = "";
   el("filter-query").value = "";
-  activeTokenFilter = "";
+  activeSubjectFilter = "";
   fetchOverview();
 });
 

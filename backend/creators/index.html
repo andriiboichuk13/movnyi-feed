@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Мовний фід · Аналітика запитів для авторів</title>
+  <title>Мовний фід · Аналітика попиту для авторів</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -19,12 +19,12 @@
         <div class="brand-badge">UA</div>
         <div>
           <h1>Мовний фід <span class="accent">Для авторів</span></h1>
-          <p class="subtitle">Агрегована аналітика побажань глядачів із Supabase · токен-класифікація та семантичне групування</p>
+          <p class="subtitle">Що глядачі хочуть дивитися українською на YouTube — ніші, наративи та ідеї для нових відео</p>
         </div>
       </div>
 
       <div class="topbar-actions">
-        <span id="status-pill" class="status-pill">Підключення…</span>
+        <span id="status-pill" class="status-pill">Оновлення…</span>
       </div>
     </div>
   </header>
@@ -50,21 +50,21 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-level">Рівень альтернативи</label>
+        <label for="filter-level">Наявність укр. відео</label>
         <select id="filter-level">
-          <option value="">Усі рівні</option>
-          <option value="1">Рівень 1 · Та сама тема (база)</option>
-          <option value="2">Рівень 2 · Пошук YouTube українською</option>
-          <option value="3">Рівень 3 · Близька тема (база)</option>
-          <option value="4">Рівень 4 · Пошук YouTube англійською</option>
-          <option value="5">Рівень 5 · Нічого не знайшли</option>
-          <option value="0">Рівень 0 · Відео вже українське</option>
+          <option value="">Усі запити</option>
+          <option value="5">Українського відео не знайдено</option>
+          <option value="4">Знайдено лише англійською</option>
+          <option value="3">Є близька українська тема</option>
+          <option value="2">Шукали на YouTube українською</option>
+          <option value="1">Є точний український аналог</option>
+          <option value="0">Відео вже українське</option>
         </select>
       </div>
 
       <div class="filter-group filter-search">
-        <label for="filter-query">Пошук за назвою або коментарем</label>
-        <input id="filter-query" type="search" placeholder="Наприклад: PlayStation, пельмені, огляд…" />
+        <label for="filter-query">Пошук за темою або відео</label>
+        <input id="filter-query" type="search" placeholder="Наприклад: PlayStation, борщ, огляд…" />
       </div>
 
       <button id="btn-reset" class="btn btn-ghost" type="button">Скинути</button>
@@ -75,37 +75,37 @@
     <!-- KPI картки -->
     <section class="kpi-grid" aria-label="Ключові показники">
       <article class="kpi-card card">
-        <span class="kpi-label">Усього побажань</span>
+        <span class="kpi-label">Запитів від глядачів</span>
         <strong id="kpi-total" class="kpi-value">—</strong>
-        <span id="kpi-processed" class="kpi-meta">Оброблено моделлю: —</span>
+        <span id="kpi-with-text" class="kpi-meta">З детальним коментарем: —</span>
       </article>
 
       <article class="kpi-card card">
         <span class="kpi-label">Унікальних глядачів</span>
         <strong id="kpi-installs" class="kpi-value">—</strong>
-        <span id="kpi-with-text" class="kpi-meta">Із текстовим коментарем: —</span>
+        <span class="kpi-meta">Людей, що шукали український контент</span>
       </article>
 
       <article class="kpi-card card">
-        <span class="kpi-label">Незакритий попит</span>
+        <span class="kpi-label">Дефіцит контенту</span>
         <strong id="kpi-unmet" class="kpi-value accent-warn">—</strong>
-        <span class="kpi-meta">Не знайдено укр. відео (рівні 4–5)</span>
+        <span id="kpi-unmet-share" class="kpi-meta">Запитів без української альтернативи</span>
       </article>
 
       <article class="kpi-card card">
-        <span class="kpi-label">Найгарячіша тема</span>
+        <span class="kpi-label">Найгарячіша ніша</span>
         <strong id="kpi-top-topic" class="kpi-value kpi-topic">—</strong>
-        <span id="kpi-confidence" class="kpi-meta">Середня впевненість: —</span>
+        <span id="kpi-top-share" class="kpi-meta">Найвищий попит аудиторії</span>
       </article>
     </section>
 
     <!-- Графіки -->
     <section class="charts-grid">
-      <article class="card chart-card chart-wide">
+      <article class="card chart-card">
         <div class="card-header">
           <div>
-            <h2>Попит за темами</h2>
-            <p class="card-sub">Розподіл побажань глядачів за категоріями контенту</p>
+            <h2>Попит і дефіцит за темами</h2>
+            <p class="card-sub">Загальна кількість запитів та частка, де бракує українських відео</p>
           </div>
         </div>
         <div class="chart-wrap">
@@ -116,8 +116,8 @@
       <article class="card chart-card">
         <div class="card-header">
           <div>
-            <h2>Динаміка запитів</h2>
-            <p class="card-sub">Кількість побажань у часі</p>
+            <h2>Динаміка інтересу глядачів</h2>
+            <p class="card-sub">Як змінюється попит на український контент по днях</p>
           </div>
         </div>
         <div class="chart-wrap">
@@ -128,8 +128,8 @@
       <article class="card chart-card">
         <div class="card-header">
           <div>
-            <h2>Тональність та намір</h2>
-            <p class="card-sub">Класифікація `user_text` моделлю</p>
+            <h2>Настрій та намір аудиторії</h2>
+            <p class="card-sub">Чому саме глядачі залишали запит</p>
           </div>
         </div>
         <div class="chart-wrap chart-wrap-sm">
@@ -140,8 +140,8 @@
       <article class="card chart-card">
         <div class="card-header">
           <div>
-            <h2>Покриття альтернативами</h2>
-            <p class="card-sub">На якому рівні зупинився пошук</p>
+            <h2>Як зараз закривається попит</h2>
+            <p class="card-sub">Чи вдалося знайти українську альтернативу</p>
           </div>
         </div>
         <div class="chart-wrap chart-wrap-sm">
@@ -150,44 +150,24 @@
       </article>
     </section>
 
-    <!-- Семантичні кластери + Токен-класифікація -->
-    <section class="insights-grid">
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2>Семантичні групи (ідеї для відео)</h2>
-            <p class="card-sub">Схожі запити, згруповані через `multilingual-e5-small` + Agglomerative Clustering</p>
-          </div>
-          <span id="clusters-count" class="badge">0 груп</span>
+    <!-- Глибокий аналіз тем і наративів -->
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>Глибокий аналіз тем і наративів</h2>
+          <p class="card-sub">Детальний розбір кожної ніші: індекс можливості, ключові теми інтересу, підтеми та конкретні наративи для відео</p>
         </div>
-        <div id="clusters-list" class="clusters-list"></div>
-      </article>
-
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2>Токен-класифікація (NER і сутності)</h2>
-            <p class="card-sub">Виділені сутності з назв відео та побажань. Натисніть токен для фільтрації.</p>
-          </div>
-          <div class="legend-pills">
-            <span class="tok-badge tok-PER">PER</span>
-            <span class="tok-badge tok-ORG">ORG</span>
-            <span class="tok-badge tok-MISC">MISC</span>
-            <span class="tok-badge tok-TECH">TECH</span>
-            <span class="tok-badge tok-LOC">LOC</span>
-            <span class="tok-badge tok-KEY">KEY</span>
-          </div>
-        </div>
-        <div id="tokens-cloud" class="tokens-cloud"></div>
-      </article>
+        <span id="topics-count" class="badge">0 тем</span>
+      </div>
+      <div id="topics-deep-grid" class="topics-deep-grid"></div>
     </section>
 
-    <!-- Таблиця побажань -->
+    <!-- Таблиця останніх запитів -->
     <section class="card table-section">
       <div class="card-header">
         <div>
-          <h2>Деталізація запитів (`wishes`)</h2>
-          <p class="card-sub">Усі побажання з визначеною темою, впевненістю та витягнутими токенами</p>
+          <h2>Останні запити глядачів</h2>
+          <p class="card-sub">Які відео дивилися глядачі, коли шукали українську альтернативу</p>
         </div>
         <span id="wishes-count" class="badge">0 записів</span>
       </div>
@@ -197,12 +177,10 @@
           <thead>
             <tr>
               <th>Дата</th>
-              <th>Відео-джерело</th>
-              <th>Коментар</th>
-              <th>Тема / Підтема</th>
-              <th>Витягнуті токени</th>
-              <th>Тональність</th>
-              <th>Рівень</th>
+              <th>Відео, яке дивилися</th>
+              <th>Тема та підтема</th>
+              <th>Намір глядача</th>
+              <th>Статус покриття</th>
             </tr>
           </thead>
           <tbody id="wishes-tbody"></tbody>

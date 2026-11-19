@@ -123,13 +123,13 @@ SENTIMENT_PROTOTYPES: List[Tuple[str, str]] = [
 ]
 
 LEVEL_LABELS = {
-    0: "Рівень 0 · Відео вже українське",
-    1: "Рівень 1 · Та сама тема (база)",
-    2: "Рівень 2 · Пошук YouTube українською",
-    3: "Рівень 3 · Близька тема (база)",
-    4: "Рівень 4 · Пошук YouTube англійською",
-    5: "Рівень 5 · Нічого не знайшли",
-    None: "Рівень не вказано",
+    0: "Відео вже українське",
+    1: "Є точний укр. аналог",
+    2: "Шукали на YouTube укр.",
+    3: "Є близька укр. тема",
+    4: "Знайдено лише англ.",
+    5: "Українського відео не знайдено",
+    None: "Статус не вказано",
 }
 
 _TECH_TOKEN_RE = re.compile(
@@ -743,6 +743,7 @@ def build_creators_analytics(
             "video_title": video_title,
             "has_user_text": bool((user_text or "").strip()),
             "level_reached": level_reached,
+            "level_label": LEVEL_LABELS.get(level_reached, "Статус не вказано"),
             "topic_id": t_id,
             "topic_name": effective_topic,
             "subtopic_id": st_id,
@@ -751,11 +752,12 @@ def build_creators_analytics(
             "processed_at": processed_at.isoformat() if processed_at else None,
             "sentiment": sentiment,
             "tokens": tokens,
+            "_install_id": install_id,
         })
 
     clusters = group_wishes_semantically(wish_records, wish_vecs)
 
-    # Агрегація по темах і підтемах.
+    # Агрегація по темах, підтемах, наративах і ключових об'єктах інтересу.
     topic_agg: Dict[str, Dict[str, Any]] = {}
     for w in wish_records:
         t_name = w["topic_name"]
@@ -766,33 +768,116 @@ def build_creators_analytics(
                 "count": 0,
                 "unmet_count": 0,
                 "conf_sum": 0.0,
+                "viewers": set(),
                 "subtopics": Counter(),
+                "sentiments": Counter(),
+                "subjects": Counter(),
+                "items": [],
             }
         entry = topic_agg[t_name]
         entry["count"] += 1
+        entry["viewers"].add(w["_install_id"])
         if _is_unmet(w["level_reached"]):
             entry["unmet_count"] += 1
         entry["conf_sum"] += w["topic_confidence"] or 0.0
         if w["subtopic_name"]:
             entry["subtopics"][w["subtopic_name"]] += 1
+        entry["sentiments"][w["sentiment"]] += 1
+        seen_tok = set()
+        for tok in w["tokens"]:
+            name_clean = (tok.get("token") or "").strip()
+            if name_clean and name_clean.lower() not in seen_tok:
+                seen_tok.add(name_clean.lower())
+                entry["subjects"][name_clean] += 1
+        entry["items"].append(w)
 
     total = len(wish_records)
+    max_topic_cnt = max((e["count"] for e in topic_agg.values()), default=1)
     topics_list = []
     for entry in topic_agg.values():
         cnt = entry["count"]
+        unmet_rate = round(entry["unmet_count"] / cnt * 100, 1)
+        opportunity_score = round(min(100.0, (cnt / max_topic_cnt) * 55.0 + unmet_rate * 0.45))
+
+        # Групуємо запити всередині теми по наративах (за кластером + підтемою).
+        nar_groups: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+        for it in entry["items"]:
+            nar_groups[int(it.get("cluster_id") or 0)].append(it)
+
+        narratives = []
+        for nar_items in nar_groups.values():
+            n_cnt = len(nar_items)
+            n_unmet = sum(1 for it in nar_items if _is_unmet(it["level_reached"]))
+            n_sub = Counter(it["subtopic_name"] for it in nar_items if it.get("subtopic_name")).most_common(1)
+            sub_label = n_sub[0][0] if n_sub else entry["name"]
+            n_sent = Counter(it["sentiment"] for it in nar_items).most_common(1)
+            dominant_intent = n_sent[0][0] if n_sent else "Без коментаря"
+
+            subj_cnt = Counter()
+            for it in nar_items:
+                for tok in it["tokens"]:
+                    t_str = (tok.get("token") or "").strip()
+                    if t_str:
+                        subj_cnt[t_str] += 1
+            top_subjs = [s for s, _ in subj_cnt.most_common(4)]
+            if top_subjs:
+                nar_title = f"{sub_label}: {', '.join(top_subjs[:3])}"
+            else:
+                sample_t = (nar_items[0].get("video_title") or sub_label).strip()
+                nar_title = sample_t[:60] + ("…" if len(sample_t) > 60 else "")
+
+            seen_vids = set()
+            sample_videos = []
+            for it in nar_items:
+                vid = it["video_id"]
+                if vid not in seen_vids:
+                    seen_vids.add(vid)
+                    sample_videos.append({
+                        "video_id": vid,
+                        "video_title": it["video_title"],
+                    })
+                if len(sample_videos) >= 3:
+                    break
+
+            narratives.append({
+                "title": nar_title,
+                "subtopic": sub_label,
+                "demand": n_cnt,
+                "unmet_rate": round(n_unmet / n_cnt * 100, 1),
+                "viewer_intent": dominant_intent,
+                "subjects": top_subjs,
+                "sample_videos": sample_videos,
+            })
+        narratives.sort(key=lambda x: (-x["demand"], -x["unmet_rate"]))
+
         topics_list.append({
             "id": entry["id"],
             "name": entry["name"],
             "count": cnt,
             "share": round(cnt / total * 100, 1),
-            "avg_confidence": round(entry["conf_sum"] / cnt, 3),
+            "unique_viewers": len(entry["viewers"]),
             "unmet_count": entry["unmet_count"],
+            "unmet_rate": unmet_rate,
+            "opportunity_score": opportunity_score,
+            "avg_confidence": round(entry["conf_sum"] / cnt, 3),
             "subtopics": [
-                {"name": s_name, "count": s_cnt}
+                {"name": s_name, "count": s_cnt, "share": round(s_cnt / cnt * 100, 1)}
                 for s_name, s_cnt in entry["subtopics"].most_common()
             ],
+            "key_subjects": [
+                {"name": s_name, "count": s_cnt}
+                for s_name, s_cnt in entry["subjects"].most_common(8)
+            ],
+            "sentiments": [
+                {"label": s_lbl, "count": s_cnt, "share": round(s_cnt / cnt * 100, 1)}
+                for s_lbl, s_cnt in entry["sentiments"].most_common()
+            ],
+            "narratives": narratives,
         })
-    topics_list.sort(key=lambda x: (-x["count"], -x["avg_confidence"]))
+    topics_list.sort(key=lambda x: (-x["count"], -x["opportunity_score"]))
+
+    for w in wish_records:
+        w.pop("_install_id", None)
 
     # Агрегація токенів / іменованих сутностей.
     token_agg: Dict[Tuple[str, str], Dict[str, Any]] = {}

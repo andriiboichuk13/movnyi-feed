@@ -108,6 +108,12 @@ def test_build_creators_analytics_aggregates_and_groups():
     assert len(data["timeline"]) == 2
     assert len(data["wishes"]) == 3
     assert all("user_text" not in w for w in data["wishes"])
+    first_topic = data["topics"][0]
+    assert "opportunity_score" in first_topic
+    assert "unmet_rate" in first_topic
+    assert "unique_viewers" in first_topic
+    assert "narratives" in first_topic and len(first_topic["narratives"]) >= 1
+    assert "key_subjects" in first_topic
 
 
 def test_creators_endpoints_and_dashboard_route():
