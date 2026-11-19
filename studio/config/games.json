@@ -1,0 +1,29 @@
+{
+  "_comment": "Ігри, з якими працює Студія. slug — значення параметра game в інструментах MCP. aliases — як гру пишуть у назвах (нижній регістр, будь-якою мовою). queries — пошукові запити для збору англо-, російсько- й україномовних відео.",
+  "games": [
+    {"slug": "minecraft", "name": "Minecraft",
+     "aliases": ["minecraft", "майнкрафт", "майнкрафте", "майнкрафті"],
+     "queries": {"en": "minecraft", "ru": "майнкрафт", "uk": "майнкрафт українською"}},
+    {"slug": "roblox", "name": "Roblox",
+     "aliases": ["roblox", "роблокс", "роблоксі", "роблоксе"],
+     "queries": {"en": "roblox", "ru": "роблокс", "uk": "роблокс українською"}},
+    {"slug": "cs2", "name": "Counter-Strike 2",
+     "aliases": ["cs2", "cs 2", "counter-strike", "counter strike", "csgo", "cs:go", "cs go", "кс2", "кс 2", "кс го", "ксго", "контра"],
+     "queries": {"en": "counter strike 2", "ru": "кс2", "uk": "кс2 українською"}},
+    {"slug": "dota2", "name": "Dota 2",
+     "aliases": ["dota", "дота", "доті", "доту"],
+     "queries": {"en": "dota 2", "ru": "дота 2", "uk": "дота 2 українською"}},
+    {"slug": "fortnite", "name": "Fortnite",
+     "aliases": ["fortnite", "фортнайт", "фортнайті"],
+     "queries": {"en": "fortnite", "ru": "фортнайт", "uk": "фортнайт українською"}},
+    {"slug": "gta", "name": "GTA",
+     "aliases": ["gta", "гта", "grand theft auto"],
+     "queries": {"en": "gta", "ru": "гта", "uk": "гта українською"}},
+    {"slug": "valorant", "name": "Valorant",
+     "aliases": ["valorant", "валорант"],
+     "queries": {"en": "valorant", "ru": "валорант", "uk": "валорант українською"}},
+    {"slug": "brawl_stars", "name": "Brawl Stars",
+     "aliases": ["brawl stars", "бравл старс", "бравл"],
+     "queries": {"en": "brawl stars", "ru": "бравл старс", "uk": "бравл старс українською"}}
+  ]
+}
