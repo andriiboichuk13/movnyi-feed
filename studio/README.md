@@ -9,7 +9,7 @@
 | `config/games.json` | ігри, з якими працює Студія: назви, аліаси, пошукові запити |
 | `data_tools/` | скрипти збору датасету |
 | `data/` | датасет (не комітиться, див. `.gitignore`) |
-| `mcp_server/` | власний MCP-сервер (наступний крок) |
+| `mcp_server/` | власний MCP-сервер з інструментами над датасетом |
 | `agent/` | агент на LangGraph (наступний крок) |
 
 ## Крок 1. Датасет
@@ -19,9 +19,9 @@
 ```powershell
 cd C:\Users\aboic\movnyi-feed
 
-# 1. Популярні ігрові відео англійською, російською й українською за останні 180 днів
-#    (за замовчуванням 8 ігор × 3 мови × 50 відео ≈ 2 430 одиниць квоти)
-backend\.venv\Scripts\python studio\data_tools\collect_youtube.py
+# 1. Популярні ігрові відео (4–20 хв і 20+ хв) англійською, російською й українською за останні 180 днів
+#    (8 ігор × 3 мови × 2 тривалості × 50 відео ≈ 4 850 одиниць квоти; лише іноземні: --langs en ru ≈ 3 230)
+backend\.venv\Scripts\python studio\data_tools\collect_youtube.py --langs en ru
 
 # 2. Українські ігрові відео з нашого каталогу + їхні перегляди (≈ 1 одиниця на 50 відео)
 backend\.venv\Scripts\python studio\data_tools\export_ua_catalog.py
@@ -36,6 +36,7 @@ backend\.venv\Scripts\python studio\data_tools\build_dataset.py
 
 - `--games minecraft roblox` — лише вибрані ігри;
 - `--pages 2` — 100 відео на мову замість 50 (подвоює витрату квоти);
+- `--durations medium long` — тривалість у пошуку (за замовчуванням); `any` — будь-яка, але тоді серед популярних переважають Shorts;
 - `--days 90` — лише за останні 90 днів;
 - `--max-units 1500` — верхня межа квоти за запуск.
 
@@ -44,6 +45,41 @@ backend\.venv\Scripts\python studio\data_tools\build_dataset.py
 `data/dataset/videos.jsonl` — по рядку на відео: id, назва, очищений опис, теги, канал, дата, тривалість, перегляди, лайки, коментарі, мова (`uk`/`ru`/`en`), гра, чи є відео в нашому каталозі. Рядок N відповідає рядку N у `emb_full.npy` і `emb_title.npy` (вектори e5-small, як у сервері розширення). `manifest.json` — коли зібрано і скільки відео за грою й мовою.
 
 Сирі відповіді YouTube API лежать у `data/raw/` без змін: з них датасет можна перебудувати повністю.
+
+## Крок 2. MCP-сервер
+
+Сервер побудований на [FastMCP](https://gofastmcp.com) (пакет `fastmcp`). Встановити (один раз):
+
+```powershell
+backend\.venv\Scripts\python -m pip install -r studio\requirements.txt
+```
+
+Запуск (з кореня репозиторію, в окремому вікні; працює, поки вікно відкрите):
+
+```powershell
+backend\.venv\Scripts\python -m studio.mcp_server.server
+```
+
+Сервер читає `studio/data/dataset/`, завантажує модель e5-small і слухає `http://127.0.0.1:8100/mcp` (транспорт streamable HTTP). У мережу не ходить. Параметри: `--port`, `--dataset <папка>`, `--transport stdio`.
+
+Тести (синтетичний датасет, справжній MCP-клієнт FastMCP у пам'яті, без мережі й моделі):
+
+```powershell
+backend\.venv\Scripts\python -m pytest studio\tests -q
+```
+
+Подивитися інструменти й викликати їх вручну можна через MCP Inspector (потрібен Node.js): `npx @modelcontextprotocol/inspector`, далі Transport: Streamable HTTP, URL: `http://127.0.0.1:8100/mcp`.
+
+| Інструмент | Що робить |
+|---|---|
+| `analyze_niche_coverage` | скільки відео про гру чи тему є українською, російською й англійською за однаковий період; висновок «недопокрита / конкурентна / насичена» |
+| `find_content_gaps` | групує популярні іноземні відео за змістом і знаходить групи без близького українського відео |
+| `score_video_idea` | оцінює ідею за попитом, конкуренцією й свіжістю з явними правилами й відео-доказами |
+| `validate_video_package` | перевіряє назву, опис і теги: обмеження YouTube, українська мова, згадка гри, хештеги |
+| `save_content_plan` | зберігає обрану ідею в контент-план креатора (`data/plans/<creator>.json`), перевіряє докази, не дублює |
+| `get_dataset_info` | допоміжний: ігри й кількість відео в датасеті |
+
+Усі пороги й правила — у `mcp_server/rules.py`. Помилки повертаються як помилки інструмента (`isError`) з кодом на початку (`DATASET_UNAVAILABLE`, `UNKNOWN_EVIDENCE`, `EVIDENCE_GAME_MISMATCH`; невалідні аргументи відхиляє схема). Порожній список у результаті означає «нічого не знайдено» і помилкою не є. Часові вікна відраховуються від дати збирання датасету, тож результати однакові на кожному запуску.
 
 ### Обмеження
 

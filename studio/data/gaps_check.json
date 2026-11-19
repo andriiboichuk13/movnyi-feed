@@ -1,0 +1,502 @@
+{
+  "minecraft": {
+    "game": "minecraft",
+    "window_days": 180,
+    "as_of": "2026-11-19",
+    "min_foreign_views": 50000,
+    "covered_similarity": 0.86,
+    "min_videos": 2,
+    "min_channels": 2,
+    "foreign_videos_considered": 164,
+    "subtopics_found": 50,
+    "covered_subtopics": 11,
+    "small_subtopics_skipped": 37,
+    "gaps": [
+      {
+        "gap_id": "minecraft-11",
+        "representative_title": "JJ and Mikey Got Scary UMA on a Hidden Camera in Minecraft! - Maizen Security House",
+        "foreign_videos": 31,
+        "channels": 12,
+        "by_lang": {
+          "ru": 0,
+          "en": 31
+        },
+        "total_views": 146374837,
+        "median_views": 3935395,
+        "newest_published": "2026-11-14",
+        "examples": [
+          {
+            "video_id": "AJqbyuJz7uc",
+            "title": "JJ and Mikey Got Scary UMA on a Hidden Camera in Minecraft! - Maizen Security House",
+            "channel": "JJ and Mikey Maizen ",
+            "lang": "en",
+            "views": 10845022,
+            "published_at": "2026-06-04",
+            "url": "https://www.youtube.com/watch?v=AJqbyuJz7uc",
+            "similarity": null
+          },
+          {
+            "video_id": "W7R8k10Kjfk",
+            "title": "JJ VERITY vs Mikey CURIOSITY! - Maizen Minecraft Animation",
+            "channel": "MSToons",
+            "lang": "en",
+            "views": 9249985,
+            "published_at": "2026-10-03",
+            "url": "https://www.youtube.com/watch?v=W7R8k10Kjfk",
+            "similarity": null
+          },
+          {
+            "video_id": "Vd2wj48og08",
+            "title": "MAIZEN : Dark JJ Sister Is Marrying JJ?!  - Minecraft Animation JJ & Mikey",
+            "channel": "Takuto - Minecraft Animation",
+            "lang": "en",
+            "views": 9158512,
+            "published_at": "2026-07-04",
+            "url": "https://www.youtube.com/watch?v=Vd2wj48og08",
+            "similarity": null
+          }
+        ],
+        "closest_uk": {
+          "video_id": "WiZeVRjYezA",
+          "title": "Майнкрафт Але Тут Щось Не Так... (Етер)",
+          "channel": "Лупрей - Майнкрафт Українською",
+          "lang": "uk",
+          "views": 20044,
+          "published_at": "2023-03-23",
+          "url": "https://www.youtube.com/watch?v=WiZeVRjYezA",
+          "similarity": 0.858
+        }
+      },
+      {
+        "gap_id": "minecraft-36",
+        "representative_title": "I Actually Got Minecraft's Strongest Armor",
+        "foreign_videos": 2,
+        "channels": 2,
+        "by_lang": {
+          "ru": 0,
+          "en": 2
+        },
+        "total_views": 2676279,
+        "median_views": 1338139,
+        "newest_published": "2026-10-31",
+        "examples": [
+          {
+            "video_id": "A-tA7Gb3GA4",
+            "title": "I Actually Got Minecraft's Strongest Armor",
+            "channel": "Divvy",
+            "lang": "en",
+            "views": 2038831,
+            "published_at": "2026-09-04",
+            "url": "https://www.youtube.com/watch?v=A-tA7Gb3GA4",
+            "similarity": null
+          },
+          {
+            "video_id": "wFln6j8faZ0",
+            "title": "153 Insane Minecraft Experiments",
+            "channel": "Prism",
+            "lang": "en",
+            "views": 637448,
+            "published_at": "2026-10-31",
+            "url": "https://www.youtube.com/watch?v=wFln6j8faZ0",
+            "similarity": null
+          }
+        ],
+        "closest_uk": {
+          "video_id": "ui72qxwCP6c",
+          "title": "🔴СТРІМ MINECRAFT З ПІДПИСНИКАМИ ГРАЄМО У ХОРРОР КАРТИ У МАЙНКРАФТ😨 П'ЯТНИЦЯ 13 #klauncher🔴",
+          "channel": "Ігри від Максима Українською",
+          "lang": "uk",
+          "views": 367,
+          "published_at": "2026-03-14",
+          "url": "https://www.youtube.com/watch?v=ui72qxwCP6c",
+          "similarity": 0.856
+        }
+      }
+    ]
+  },
+  "valorant": {
+    "game": "valorant",
+    "window_days": 180,
+    "as_of": "2026-11-19",
+    "min_foreign_views": 50000,
+    "covered_similarity": 0.86,
+    "min_videos": 2,
+    "min_channels": 2,
+    "foreign_videos_considered": 111,
+    "subtopics_found": 36,
+    "covered_subtopics": 4,
+    "small_subtopics_skipped": 23,
+    "gaps": [
+      {
+        "gap_id": "valorant-7",
+        "representative_title": "LOUD vs. VIT — VALORANT Champions Shanghai — Grand Final",
+        "foreign_videos": 33,
+        "channels": 3,
+        "by_lang": {
+          "ru": 0,
+          "en": 33
+        },
+        "total_views": 40762731,
+        "median_views": 1221748,
+        "newest_published": "2026-10-24",
+        "examples": [
+          {
+            "video_id": "l9VxSMFMlKI",
+            "title": "LOUD vs. VIT — VALORANT Champions Shanghai — Grand Final",
+            "channel": "VALORANT Champions Tour",
+            "lang": "en",
+            "views": 2871084,
+            "published_at": "2026-10-18",
+            "url": "https://www.youtube.com/watch?v=l9VxSMFMlKI",
+            "similarity": null
+          },
+          {
+            "video_id": "IFESweyA2Ow",
+            "title": "PRX vs. LEV — VALORANT Masters London — Grand Final",
+            "channel": "VALORANT Champions Tour",
+            "lang": "en",
+            "views": 2299647,
+            "published_at": "2026-06-21",
+            "url": "https://www.youtube.com/watch?v=IFESweyA2Ow",
+            "similarity": null
+          },
+          {
+            "video_id": "w5O5vwuHwXY",
+            "title": "VALORANT Champions Shanghai — Group Stage — Day 5",
+            "channel": "VALORANT Champions Tour",
+            "lang": "en",
+            "views": 2063662,
+            "published_at": "2026-09-29",
+            "url": "https://www.youtube.com/watch?v=w5O5vwuHwXY",
+            "similarity": null
+          }
+        ],
+        "closest_uk": {
+          "video_id": "gGZk3yDRgrs",
+          "title": "Коли граєш в командну гру 9 vs 1 || VALORANT || Discord з розмовами 😘",
+          "channel": "Dismire",
+          "lang": "uk",
+          "views": 21,
+          "published_at": "2026-11-14",
+          "url": "https://www.youtube.com/watch?v=gGZk3yDRgrs",
+          "similarity": 0.847
+        }
+      },
+      {
+        "gap_id": "valorant-17",
+        "representative_title": "If The Sun Burns Out Tonight ft. Grabbitz, Oli Sykes, Courtney LaPlante // VALORANT Champions 2026",
+        "foreign_videos": 3,
+        "channels": 3,
+        "by_lang": {
+          "ru": 0,
+          "en": 3
+        },
+        "total_views": 21493016,
+        "median_views": 3702768,
+        "newest_published": "2026-10-18",
+        "examples": [
+          {
+            "video_id": "x8jAY2CoOBg",
+            "title": "If The Sun Burns Out Tonight ft. Grabbitz, Oli Sykes, Courtney LaPlante // VALORANT Champions 2026",
+            "channel": "VALORANT",
+            "lang": "en",
+            "views": 15143626,
+            "published_at": "2026-09-16",
+            "url": "https://www.youtube.com/watch?v=x8jAY2CoOBg",
+            "similarity": null
+          },
+          {
+            "video_id": "RlPpn6dAhWs",
+            "title": "If The Sun Burns Out Tonight (feat. Oli Sykes & Courtney LaPlante)",
+            "channel": "VALORANT - Topic",
+            "lang": "en",
+            "views": 3702768,
+            "published_at": "2026-09-16",
+            "url": "https://www.youtube.com/watch?v=RlPpn6dAhWs",
+            "similarity": null
+          },
+          {
+            "video_id": "ikOnfR01Vyc",
+            "title": "2026 VCT Champions Opening Ceremony ft. Grabbitz, Oli Sykes, Courtney LaPlante, keshi, & Nana Ouyang",
+            "channel": "VALORANT Champions Tour",
+            "lang": "en",
+            "views": 2646622,
+            "published_at": "2026-10-18",
+            "url": "https://www.youtube.com/watch?v=ikOnfR01Vyc",
+            "similarity": null
+          }
+        ],
+        "closest_uk": {
+          "video_id": "niTy8OrRLaI",
+          "title": "🔴 VALORANT українською | NOLIMITER × ENERGY",
+          "channel": "Nolimiter",
+          "lang": "uk",
+          "views": 32,
+          "published_at": "2026-09-30",
+          "url": "https://www.youtube.com/watch?v=niTy8OrRLaI",
+          "similarity": 0.829
+        }
+      },
+      {
+        "gap_id": "valorant-0",
+        "representative_title": "How I Accidentally Became A Valorant Pro",
+        "foreign_videos": 3,
+        "channels": 3,
+        "by_lang": {
+          "ru": 0,
+          "en": 3
+        },
+        "total_views": 2601805,
+        "median_views": 749395,
+        "newest_published": "2026-10-17",
+        "examples": [
+          {
+            "video_id": "pgJyXDmNDss",
+            "title": "How I Accidentally Became A Valorant Pro",
+            "channel": "ohnepixel raw",
+            "lang": "en",
+            "views": 1315518,
+            "published_at": "2026-10-17",
+            "url": "https://www.youtube.com/watch?v=pgJyXDmNDss",
+            "similarity": null
+          },
+          {
+            "video_id": "HAmMTreeLc4",
+            "title": "Jett at Mastery Level 20 Is INSANE…",
+            "channel": "Mandark",
+            "lang": "en",
+            "views": 749395,
+            "published_at": "2026-10-11",
+            "url": "https://www.youtube.com/watch?v=HAmMTreeLc4",
+            "similarity": null
+          },
+          {
+            "video_id": "JHHCZpXp5e4",
+            "title": "The Most BIZARRE Match in Pro Valorant",
+            "channel": "Airen",
+            "lang": "en",
+            "views": 536892,
+            "published_at": "2026-06-26",
+            "url": "https://www.youtube.com/watch?v=JHHCZpXp5e4",
+            "similarity": null
+          }
+        ],
+        "closest_uk": {
+          "video_id": "ZbqrzqhI24w",
+          "title": "Ми взяли ТІЛЬКИ одну роль на всю команду в VALORANT",
+          "channel": "iVusk0",
+          "lang": "uk",
+          "views": 12,
+          "published_at": "2026-05-31",
+          "url": "https://www.youtube.com/watch?v=ZbqrzqhI24w",
+          "similarity": 0.852
+        }
+      },
+      {
+        "gap_id": "valorant-28",
+        "representative_title": "This One’s BIG // Dev Updates - VALORANT",
+        "foreign_videos": 2,
+        "channels": 2,
+        "by_lang": {
+          "ru": 0,
+          "en": 2
+        },
+        "total_views": 1898412,
+        "median_views": 949206,
+        "newest_published": "2026-09-14",
+        "examples": [
+          {
+            "video_id": "EDOshYsSzT8",
+            "title": "This One’s BIG // Dev Updates - VALORANT",
+            "channel": "VALORANT",
+            "lang": "en",
+            "views": 1046916,
+            "published_at": "2026-09-14",
+            "url": "https://www.youtube.com/watch?v=EDOshYsSzT8",
+            "similarity": null
+          },
+          {
+            "video_id": "AaFziYVu7lU",
+            "title": "VALORANT Full Movie UPDATED (2026) | EVERY Valorant Lore Cinematic In Order 4K ULTRA HD",
+            "channel": "Extinct",
+            "lang": "en",
+            "views": 851496,
+            "published_at": "2026-06-25",
+            "url": "https://www.youtube.com/watch?v=AaFziYVu7lU",
+            "similarity": null
+          }
+        ],
+        "closest_uk": {
+          "video_id": "niTy8OrRLaI",
+          "title": "🔴 VALORANT українською | NOLIMITER × ENERGY",
+          "channel": "Nolimiter",
+          "lang": "uk",
+          "views": 32,
+          "published_at": "2026-09-30",
+          "url": "https://www.youtube.com/watch?v=niTy8OrRLaI",
+          "similarity": 0.858
+        }
+      },
+      {
+        "gap_id": "valorant-6",
+        "representative_title": "i am begging you to start aim-maxxing",
+        "foreign_videos": 2,
+        "channels": 2,
+        "by_lang": {
+          "ru": 0,
+          "en": 2
+        },
+        "total_views": 1384858,
+        "median_views": 692429,
+        "newest_published": "2026-08-30",
+        "examples": [
+          {
+            "video_id": "U_YKDIZ2Qkk",
+            "title": "i am begging you to start aim-maxxing",
+            "channel": "KgProz",
+            "lang": "en",
+            "views": 799956,
+            "published_at": "2026-07-28",
+            "url": "https://www.youtube.com/watch?v=U_YKDIZ2Qkk",
+            "similarity": null
+          },
+          {
+            "video_id": "WGS-xDCvS7M",
+            "title": "How to Master Calm Aim in Valorant | Scyfe Full Guide",
+            "channel": "Scyfe",
+            "lang": "en",
+            "views": 584902,
+            "published_at": "2026-08-30",
+            "url": "https://www.youtube.com/watch?v=WGS-xDCvS7M",
+            "similarity": null
+          }
+        ],
+        "closest_uk": {
+          "video_id": "8JCSyeGUUOc",
+          "title": "Hush player vs Platinum's || Valorant",
+          "channel": "Dismire",
+          "lang": "uk",
+          "views": 52,
+          "published_at": "2026-11-18",
+          "url": "https://www.youtube.com/watch?v=8JCSyeGUUOc",
+          "similarity": 0.84
+        }
+      }
+    ]
+  },
+  "roblox": {
+    "game": "roblox",
+    "window_days": 180,
+    "as_of": "2026-11-19",
+    "min_foreign_views": 50000,
+    "covered_similarity": 0.86,
+    "min_videos": 2,
+    "min_channels": 2,
+    "foreign_videos_considered": 141,
+    "subtopics_found": 27,
+    "covered_subtopics": 9,
+    "small_subtopics_skipped": 16,
+    "gaps": [
+      {
+        "gap_id": "roblox-2",
+        "representative_title": "MAFIA BOSS Is MY BOYFRIEND (Episode 1-5) | Story Roblox",
+        "foreign_videos": 3,
+        "channels": 2,
+        "by_lang": {
+          "ru": 0,
+          "en": 3
+        },
+        "total_views": 8135596,
+        "median_views": 2202940,
+        "newest_published": "2026-10-05",
+        "examples": [
+          {
+            "video_id": "bfFLVeq3xw0",
+            "title": "MAFIA BOSS Is MY BOYFRIEND (Episode 1-5) | Story Roblox",
+            "channel": "LiLy Cute Roblox",
+            "lang": "en",
+            "views": 4391608,
+            "published_at": "2026-09-12",
+            "url": "https://www.youtube.com/watch?v=bfFLVeq3xw0",
+            "similarity": null
+          },
+          {
+            "video_id": "JmbbhUnsNK4",
+            "title": "My super annoying stepsister 1-4 | Story Roblox",
+            "channel": "Ender Gaming X",
+            "lang": "en",
+            "views": 2202940,
+            "published_at": "2026-08-08",
+            "url": "https://www.youtube.com/watch?v=JmbbhUnsNK4",
+            "similarity": null
+          },
+          {
+            "video_id": "t-RHr0yf2ZQ",
+            "title": "MAFIA BOSS Is MY BOYFRIEND (Episode 1-7) | Story Roblox",
+            "channel": "LiLy Cute Roblox",
+            "lang": "en",
+            "views": 1541048,
+            "published_at": "2026-10-05",
+            "url": "https://www.youtube.com/watch?v=t-RHr0yf2ZQ",
+            "similarity": null
+          }
+        ],
+        "closest_uk": {
+          "video_id": "cllUtVeAPTY",
+          "title": "ВГАДАЙ МОНСТРА ПО ЕМОДЗІ 😱 | MR. MIX + ROBLOX OBBY | Mr. Funny, Pappa Pizza",
+          "channel": "Квіз UA",
+          "lang": "uk",
+          "views": 1876,
+          "published_at": "2026-04-16",
+          "url": "https://www.youtube.com/watch?v=cllUtVeAPTY",
+          "similarity": 0.841
+        }
+      },
+      {
+        "gap_id": "roblox-6",
+        "representative_title": "I Built My Own ASMR TOWER in Roblox! | ProBoii",
+        "foreign_videos": 2,
+        "channels": 2,
+        "by_lang": {
+          "ru": 0,
+          "en": 2
+        },
+        "total_views": 5175694,
+        "median_views": 2587847,
+        "newest_published": "2026-10-14",
+        "examples": [
+          {
+            "video_id": "OIStyPfw3UY",
+            "title": "I Built My Own ASMR TOWER in Roblox! | ProBoii",
+            "channel": "ProBoii",
+            "lang": "en",
+            "views": 3296249,
+            "published_at": "2026-10-14",
+            "url": "https://www.youtube.com/watch?v=OIStyPfw3UY",
+            "similarity": null
+          },
+          {
+            "video_id": "hIFaWF9gwVo",
+            "title": "I built a CITY in 99 Nights in the Forest (ROBLOX)",
+            "channel": "xnehaha",
+            "lang": "en",
+            "views": 1879445,
+            "published_at": "2026-10-14",
+            "url": "https://www.youtube.com/watch?v=hIFaWF9gwVo",
+            "similarity": null
+          }
+        ],
+        "closest_uk": {
+          "video_id": "bpeBhTM6wBg",
+          "title": "🇺🇦 Я ПРОКАЧАВ СВІЙ ЧОВЕН В РОБЛОКСІ! БАКІ РОБЛОКС УКРАЇНСЬКОЮ",
+          "channel": "Бакі Роблокс",
+          "lang": "uk",
+          "views": 66210,
+          "published_at": "2026-06-11",
+          "url": "https://www.youtube.com/watch?v=bpeBhTM6wBg",
+          "similarity": 0.858
+        }
+      }
+    ]
+  }
+}

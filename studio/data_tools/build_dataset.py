@@ -32,6 +32,17 @@ from youtube import parse_duration  # noqa: E402
 
 FOREIGN_MIN_CONF = {"en": 0.7, "ru": 0.8, "uk": 0.8}
 
+# Коли мову звуку не вказано, «англійська» вгадується лише з того, що текст латиницею. Так проходять
+# французькі, іспанські, португальські, німецькі відео; відсіюємо їх за діакритикою й службовими словами.
+NON_EN_LETTERS = re.compile(r"[àâäçéèêëîïôöûùüÿñãõáíóúßœ]", re.IGNORECASE)
+NON_EN_WORDS = {"le", "la", "les", "des", "du", "et", "avec", "pour", "sur", "dans", "el", "los", "las", "con",
+                "para", "por", "una", "del", "com", "não", "uma", "der", "die", "das", "und", "mit", "ist", "nicht"}
+
+
+def looks_non_english(text: str) -> bool:
+    words = re.findall(r"[a-zà-ÿ]+", text.lower())
+    return len(NON_EN_LETTERS.findall(text)) >= 2 or sum(w in NON_EN_WORDS for w in words) >= 2
+
 
 def game_matcher(games):
     compiled = []
@@ -86,7 +97,9 @@ def build_records(merged, games):
         if e["in_catalog"]:
             lang, conf = "uk", 0.95  # каталог містить лише перевірені українські відео
         else:
-            lang, conf, _ = source_language(sn)
+            lang, conf, src = source_language(sn)
+            if lang == "en" and src == "latin-only" and looks_non_english(f"{sn.get('title', '')} {sn.get('description', '')[:300]}"):
+                lang = "other"
         if lang not in FOREIGN_MIN_CONF or conf < FOREIGN_MIN_CONF[lang]:
             dropped["мову не визначено або інша мова"] += 1
             continue
