@@ -61,15 +61,18 @@ def _short(value, n=300):
 
 
 async def run_agent(idea: str, creator: str, model, studio_url: str, playwright_url: str | None,
-                    max_steps: int = 40, verbose: bool = True):
+                    max_steps: int = 40, verbose: bool = True, on_event=None):
     """Запускає агента й повертає (звіт, журнал викликів інструментів, статус підключень)."""
     from langchain.agents import create_agent
 
     async with connect(studio_url, playwright_url) as (tools, status):
-        return await _run(idea, creator, model, tools, status, max_steps, verbose, create_agent)
+        return await _run(idea, creator, model, tools, status, max_steps, verbose, create_agent, on_event)
 
 
-async def _run(idea, creator, model, tools, status, max_steps, verbose, create_agent):
+async def _run(idea, creator, model, tools, status, max_steps, verbose, create_agent, on_event=None):
+    """on_event(dict) — необов'язковий колбек для живого прогресу (веб-сторінка Студії)."""
+    emit = on_event or (lambda event: None)
+    emit({"type": "connected", "status": status})
     status_text = "\n".join(f"- {name}: {state}" for name, state in status.items())
     if verbose:
         print("Підключення MCP:\n" + status_text + "\n")
@@ -85,6 +88,7 @@ async def _run(idea, creator, model, tools, status, max_steps, verbose, create_a
                 if msg.type == "ai":
                     for call in getattr(msg, "tool_calls", []) or []:
                         log.append({"tool": call["name"], "args": call["args"]})
+                        emit({"type": "tool_call", "tool": call["name"], "args": call["args"]})
                         if verbose:
                             print(f"→ {call['name']}({_short(call['args'], 200)})")
                     if msg.content and not getattr(msg, "tool_calls", None):
@@ -93,6 +97,7 @@ async def _run(idea, creator, model, tools, status, max_steps, verbose, create_a
                     failed = getattr(msg, "status", "") == "error"
                     if log and log[-1].get("tool") == msg.name and "result" not in log[-1]:
                         log[-1]["result"] = "error" if failed else "ok"
+                    emit({"type": "tool_result", "tool": msg.name, "ok": not failed})
                     if verbose:
                         print(f"  {'✗' if failed else '✓'} {msg.name}: {_short(msg.content)}")
     return report, log, status

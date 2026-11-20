@@ -773,6 +773,20 @@ def creators_studio():
     return FileResponse(path)
 
 
+@app.get("/creators/studio/try", include_in_schema=False)
+def creators_studio_try():
+    path = os.path.join(CREATORS_DIR, "studio-try.html")
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Сторінку не знайдено")
+    return FileResponse(path)
+
+
+@app.get("/api/studio/config")
+def studio_config():
+    """Адреса живого агента Студії (працює на ноутбуці команди через ngrok). Змінна STUDIO_AGENT_URL на Railway."""
+    return {"agent_url": os.getenv("STUDIO_AGENT_URL", "https://blurb-subgroup-kilobyte.ngrok-free.dev").rstrip("/")}
+
+
 @app.get("/api/studio/reports")
 def studio_reports(limit: int = Query(20, ge=1, le=100)):
     """Список опублікованих звітів агента Студії (без тексту звіту)."""

@@ -118,6 +118,19 @@ backend\.venv\Scripts\python studio\publish_report.py --all    # усі звіт
 
 Скрипт записує звіт у таблицю `studio_reports` у Supabase; сервер на Railway віддає його сторінці. Повторна публікація того самого файла оновлює запис.
 
+**Живий агент для журі (QR).** QR веде на `https://movnyi-feed-production.up.railway.app/creators/studio/try`.
+Сторінка на Railway звертається до агента на ноутбуці через ngrok; якщо ноутбук офлайн, показує готові звіти.
+На ноутбуці, крім вікон 1 і 2, ще два вікна:
+
+```powershell
+backend\.venv\Scripts\python -m uvicorn studio.web:app --port 8200   # вікно 3: API живого агента
+ngrok http 8200                                                        # вікно 4: публічна адреса
+```
+
+Обмеження: 2 агенти одночасно (решта в черзі), 4 запуски на годину з одного пристрою, 60 на день
+(змінні `STUDIO_MAX_CONCURRENT`, `STUDIO_PER_IP_PER_HOUR`, `STUDIO_DAILY_LIMIT`). Кожен звіт публікується на сайт.
+Адреса агента для сайту — змінна `STUDIO_AGENT_URL` на Railway (за замовчуванням наш домен ngrok).
+
 **Обмеження браузера** (`agent/tools.py`): моделі доступні лише `browser_navigate` і `browser_snapshot`; адреси поза
 `ALLOWED_HOSTS` відхиляються з помилкою `BLOCKED_URL` ще до звернення до Playwright; знімок сторінки обрізається до 12 000
 символів. Якщо Playwright MCP не запущений, агент працює далі лише з датасетом і пише про це у звіті.
