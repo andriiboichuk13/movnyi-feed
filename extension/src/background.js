@@ -243,6 +243,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   for (const [k, v] of Object.entries(MF_DEFAULTS)) if (!(k in current)) missing[k] = v;
   await chrome.storage.local.set(missing);
   chrome.alarms.create("daily", { periodInMinutes: 60 * 24, delayInMinutes: 1 });
+
+  // Після оновлення розширення старі відповіді сервера в кеші можуть бути застарілими
+  // (наприклад, сервер змінив алгоритм підбору), тому кеш відповідей очищаємо.
+  const all = await chrome.storage.local.get(null);
+  const stale = Object.keys(all).filter((k) => k.startsWith("alt:") || k.startsWith("cls:"));
+  if (stale.length) await chrome.storage.local.remove(stale);
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
